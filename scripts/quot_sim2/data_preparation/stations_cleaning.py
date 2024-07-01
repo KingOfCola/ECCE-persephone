@@ -60,7 +60,7 @@ def extract_coordinates(kml: any) -> list[dict]:
         coords = placemark.Point.coordinates.text.strip().split(",")
         coordinates.append(
             {
-                "station_id": name,
+                "station_id": f"S{name.strip():0>4}",
                 "longitude": float(coords[0]),
                 "latitude": float(coords[1]),
                 "altitude": float(coords[2]) if len(coords) == 3 else 0,
@@ -102,5 +102,5 @@ if __name__ == "__main__":
     )
 
     # Save data as csv (for readability) and parquet (for efficiency)
-    stations.to_csv(rf"{preprocessed_dir}\stations.csv")
-    stations.to_parquet(rf"{preprocessed_dir}\stations.parquet")
+    stations.to_csv(rf"{preprocessed_dir}\stations.csv", index=False)
+    stations.to_parquet(rf"{preprocessed_dir}\stations.parquet", index=False)
