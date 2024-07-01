@@ -1,0 +1,8 @@
+{
+    "jupyter.notebookFileRoot": "${workspaceFolder}",
+    "jupyter.interactiveWindow.textEditor.executeSelection": true,
+    "terminal.integrated.cwd": "${workspaceFolder}",
+    "editor.formatOnSave": true,
+    "python.envFile": "${workspaceFolder}/.env",
+    "python.formatting.provider": "black"
+}
