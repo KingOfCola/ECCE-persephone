@@ -30,6 +30,23 @@ def autocorr4(x):
     return corr
 
 
+def spline_interpolation(x, y, step=1):
+    from scipy.interpolate import interp1d
+    from scipy.optimize import curve_fit
+
+    xx = np.arange(x[0], x[-1] + step, step)
+    yy0 = np.zeros(len(xx))
+
+    def opt(x, *yy):
+        f = interp1d(xx, yy, kind="cubic")
+        return f(x)
+
+    popt, v = curve_fit(opt, x, y, p0=yy0)
+
+    f = interp1d(xx, popt, kind="cubic")
+    return f
+
+
 if __name__ == "__main__":
     FULL_YEAR_MIN = 1959
     FULL_YEAR_MAX = 2023
@@ -48,7 +65,7 @@ if __name__ == "__main__":
         & (temperatures_stations["day_of_year"] <= DAYS_IN_YEAR)
     ]
 
-    STATION = "S2000"
+    STATION = "S1000"
 
     temperatures = temperatures_stations[STATION].values
 
@@ -67,6 +84,9 @@ if __name__ == "__main__":
             2 * np.pi * i * np.arange(N) / DAYS_IN_YEAR + np.angle(a)
         )
 
+    t = np.arange(N)
+    f = spline_interpolation(t, standardized_temperatures, step=5 * DAYS_IN_YEAR)
+
     # Plot the temperature profile
     fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
     fig.suptitle(f"Temperature profile of station {STATION}")
@@ -75,12 +95,18 @@ if __name__ == "__main__":
     ax[0].set_ylabel("Mean temperature (absolute)")
 
     ax[1].plot(standardized_temperatures)
+    ax[1].plot(t, f(t), c="r")
     ax[1].set_ylabel("Mean temperature (residuals)")
     plt.show()
 
     # QQ-plot
-    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-    sm.qqplot(standardized_temperatures, line="s", ax=ax)
+    fig, axes = plt.subplots(1, 3, figsize=(12, 5))
+    sm.qqplot(temperatures, line="s", ax=axes[0])
+    sm.qqplot(standardized_temperatures, line="s", ax=axes[1])
+    sm.qqplot(standardized_temperatures - f(t), line="s", ax=axes[2])
+    axes[0].set_title("Raw mean temperatures")
+    axes[1].set_title("Standardized temperatures")
+    axes[2].set_title("Standardized temperatures,\nlong-term detrended")
     plt.show()
 
     # Autocorrelation
@@ -117,4 +143,23 @@ if __name__ == "__main__":
     )
     ax.plot(x, normal_distribution, label="Normal distribution", color="red")
     ax.fill_between(x, ci_inf, ci_sup, color="red", alpha=0.3)
+    plt.show()
+
+    from sklearn.linear_model import LinearRegression
+
+    lr = LinearRegression(fit_intercept=False)
+
+    X = np.arange(N).reshape(-1, 1)
+    y = auto
+
+    n_steps = 10
+    lr.fit(X[:n_steps], np.log(y[:n_steps]))
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+    ax.plot(X, y, "o")
+    ax.plot(X, np.exp(lr.predict(X)), color="red")
+    ax.set_xlim(0, 50)
+    ax.set_ylim(0.01, 1.1)
+    ax.set_yscale("log")
+
     plt.show()
