@@ -10,41 +10,38 @@
 """
 import numpy as np
 import pandas as pd
-from time import time
-import statsmodels.api as sm
-import tqdm
+import os
 
 from matplotlib import pyplot as plt
 
+from plots.mapplot import plot_map, set_lims
 from utils.paths import data, output
 
 if __name__ == "__main__":
-    DIRNAME = data("Quot_SIM2/Raw")
-    filename = r"QUOT_SIM2_2000-2009.csv.gz"
+    FULL_YEAR_MIN = 1959
+    FULL_YEAR_MAX = 2023
+    YEARS = FULL_YEAR_MAX - FULL_YEAR_MIN + 1
 
-    start = time()
-    data = pd.read_csv(rf"{DIRNAME}\{filename}", sep=";")
-    end = time()
+    DAYS_IN_YEAR = 365
+    N = YEARS * DAYS_IN_YEAR
 
-    print(f"Elapsed time: {end-start:.2f}s")
-    print(data.columns)
-    print(data.shape)
-    print(data["DATE"].nunique())
+    SEED = 42
 
-    data["LAMBX"].nunique()
-    data["LAMBY"].nunique()
-    data["DATEDAY"] = pd.to_datetime(data["DATE"], format="%Y%m%d")
-    data["YEAR"] = data["DATEDAY"].dt.year
-    data["DAY_OF_YEAR"] = data["DATEDAY"].dt.dayofyear
+    OUTPUT_DIR = output("Stations clustering")
 
-    temperatures_df = data.pivot_table(
-        index=("LAMBX", "LAMBY"),
-        columns=("YEAR", "DAY_OF_YEAR"),
-        values="T_Q",
-        aggfunc="sum",
-        fill_value=0,
+    temperatures_stations = pd.read_parquet(
+        data(r"Preprocessed/1958_2024-05_T_Q.parquet")
     )
-    temperatures = temperatures_df.values
+    stations = pd.read_parquet(data(r"Preprocessed/stations.parquet"))
+
+    temperatures_stations.reset_index(inplace=True)
+    temperatures_stations = temperatures_stations.loc[
+        (temperatures_stations["year"].between(FULL_YEAR_MIN, FULL_YEAR_MAX))
+        & (temperatures_stations["day_of_year"] <= DAYS_IN_YEAR)
+    ]
+
+    
+    temperatures = temperatures_stations.drop(columns=["year", "day_of_year"]).values.T
     temperatures_centered = (
         temperatures - temperatures.mean(axis=1, keepdims=True)
     ) / temperatures.std(axis=1, keepdims=True)
@@ -52,49 +49,65 @@ if __name__ == "__main__":
 
     corr = np.corrcoef(temperatures_centered, rowvar=True)
 
+    #---------------------------------------------
+    # Clustering methods
+    #---------------------------------------------
+    ## KMeans
     from sklearn.cluster import KMeans
+    coordinates = stations[["longitude", "latitude"]].values
+
+    kmeans_dir = os.path.join(OUTPUT_DIR, "KMeans")
+    os.makedirs(kmeans_dir, exist_ok=True)
 
     for n_cluster in range(2, 9):
-        model = KMeans(n_clusters=n_cluster)
+        model = KMeans(n_clusters=n_cluster, random_state=SEED)
         model.fit(temperatures_centered)
-
-        lamberts = temperatures_df.index.to_numpy()
-        lamberts = np.array([list(l) for l in lamberts])
 
         fig, ax = plt.subplots(figsize=(6, 6))
         ax.scatter(
-            lamberts[:, 0],
-            lamberts[:, 1],
+            coordinates[:, 0],
+            coordinates[:, 1],
             c=model.labels_,
             cmap="rainbow",
             s=5,
             marker="s",
         )
-        ax.set_xlabel(r"$\lambda_x (hm)$")
-        ax.set_ylabel(r"$\lambda_y (hm)$")
-        ax.set_aspect(1)
+        plot_map("europe", ax=ax, ec="k")
+        set_lims(ax, 40, 55, -7, 13)
+        ax.set_xlabel("Longitude (°)")
+        ax.set_ylabel("Latitude (°)")
         ax.set_title(f"Number of clusters: {n_cluster}")
+        fig.savefig(os.path.join(kmeans_dir, f"temperature-clustering_{n_cluster}.png"))
         plt.show()
 
+    
+    ## Gaussian Mixture
     from sklearn.mixture import GaussianMixture
 
-    for n_cluster in range(2, 9):
-        model = GaussianMixture(n_components=n_cluster)
+    gaussian_dir = os.path.join(OUTPUT_DIR, "GaussianMixture")
+    os.makedirs(gaussian_dir, exist_ok=True)
+
+    for n_cluster in range(2, 2):
+        model = GaussianMixture(n_components=n_cluster, random_state=SEED)
         model.fit(temperatures_centered)
         y = model.predict(temperatures_centered)
 
-        lamberts = temperatures_df.index.to_numpy()
-        lamberts = np.array([list(l) for l in lamberts])
-
         fig, ax = plt.subplots(figsize=(6, 6))
-        ax.scatter(lamberts[:, 0], lamberts[:, 1], c=y, cmap="rainbow", s=5, marker="s")
-        ax.set_xlabel(r"$\lambda_x (hm)$")
-        ax.set_ylabel(r"$\lambda_y (hm)$")
+        ax.scatter(coordinates[:, 0], coordinates[:, 1], c=y, cmap="rainbow", s=5, marker="s")
+        plot_map("europe", ax=ax, ec="k")
+        set_lims(ax, 40, 55, -7, 13)
+        ax.set_xlabel("Longitude (°)")
+        ax.set_ylabel("Latitude (°)")
         ax.set_aspect(1)
         ax.set_title(f"Number of clusters: {n_cluster}")
+        fig.savefig(os.path.join(gaussian_dir, f"temperature-clustering_{n_cluster}.png"))
         plt.show()
 
+    ## Hierarchical clustering
     from scipy.cluster.hierarchy import cut_tree, linkage, dendrogram
+
+    hierarchical_dir = os.path.join(OUTPUT_DIR, "Hierarchical")
+    os.makedirs(hierarchical_dir, exist_ok=True)
 
     n_clusters = list(range(2, 9))
 
@@ -105,27 +118,31 @@ if __name__ == "__main__":
     for i, n_cluster in enumerate(n_clusters):
         fig, ax = plt.subplots(figsize=(6, 6))
         ax.scatter(
-            lamberts[:, 0],
-            lamberts[:, 1],
+            coordinates[:, 0],
+            coordinates[:, 1],
             c=cuttree[:, i],
             cmap="rainbow",
             s=5,
             marker="s",
         )
+        plot_map("europe", ax=ax, ec="k")
+        set_lims(ax, 40, 55, -7, 13)
         ax.set_title(f"Number of clusters: {n_cluster}")
+        fig.savefig(output("Quot_SIM2/Clustering/temperature-clustering_complete-8.png"))
         plt.show()
 
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.scatter(
-        lamberts[:, 0],
-        lamberts[:, 1],
+        coordinates[:, 0],
+        coordinates[:, 1],
         c=cuttree[:, i],
         cmap="rainbow",
         s=5,
         marker="s",
     )
+    plot_map("europe", ax=ax, ec="k")
+    set_lims(ax, 40, 55, -7, 13)
     ax.set_title(f"Number of clusters: {n_cluster} (method={method})")
-    fig.savefig(output("Quot_SIM2/Clustering/temperature-clustering_complete-8.png"))
     plt.show()
 
     # Plot the dendrogram
@@ -139,3 +156,21 @@ if __name__ == "__main__":
         temperatures.columns.get_level_values(1),
     )
     plt.show()
+
+    #---------------------------------------------
+    # Dimensionality reduction
+    #---------------------------------------------
+    ## PCA
+    from sklearn.decomposition import PCA
+    import seaborn as sns
+
+    pca = PCA(n_components=3)
+    X = pca.fit_transform(temperatures_centered)
+
+    fig, axes = plt.subplots(2, 2, figsize=(6, 6))
+    sns.histplot(pd.DataFrame(X), x=0, y=1, ax=axes[0, 0])
+    sns.histplot(pd.DataFrame(X), x=0, y=2, ax=axes[0, 1])
+    sns.histplot(pd.DataFrame(X), x=1, y=2, ax=axes[1, 0])
+    sns.histplot(pd.DataFrame(X), x=0, ax=axes[1, 1])
+    plt.show()
+

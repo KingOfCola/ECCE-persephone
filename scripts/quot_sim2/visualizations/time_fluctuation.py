@@ -13,19 +13,31 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import statsmodels.api as sm
+from sklearn.linear_model import LinearRegression
 
 from utils.paths import data, output
 
 
-def autocorr4(x):
-    """fft, don't pad 0s, non partial"""
-    mean = x.mean()
-    var = np.var(x)
-    xp = x - mean
+def autocorr3(x):
+    '''fft, pad 0s, non partial
+    
+    Code from https://stackoverflow.com/a/51168178/25980698
+    '''
 
-    cf = np.fft.fft(xp)
-    sf = cf.conjugate() * cf
-    corr = np.fft.ifft(sf).real / var / len(x)
+    n=len(x)
+    # pad 0s to 2n-1
+    ext_size=2*n-1
+    # nearest power of 2
+    fsize=2**np.ceil(np.log2(ext_size)).astype('int')
+
+    xp=x-np.mean(x)
+    var=np.var(x)
+
+    # do fft and ifft
+    cf=np.fft.fft(xp,fsize)
+    sf=cf.conjugate()*cf
+    corr=np.fft.ifft(sf).real
+    corr=corr/var/n
 
     return corr
 
@@ -56,7 +68,7 @@ if __name__ == "__main__":
     N = YEARS * DAYS_IN_YEAR
 
     temperatures_stations = pd.read_parquet(
-        data(r"Quot_SIM2/Preprocessed/1958_2024-05_T_Q.parquet")
+        data(r"Preprocessed/1958_2024-05_T_Q.parquet")
     )
 
     temperatures_stations.reset_index(inplace=True)
@@ -110,12 +122,30 @@ if __name__ == "__main__":
     plt.show()
 
     # Autocorrelation
+    f = spline_interpolation(np.arange(N), standardized_temperatures, step=5 * DAYS_IN_YEAR)
+    detrended_temperatures = standardized_temperatures - f(np.arange(N))
+
+    auto = autocorr3(detrended_temperatures)
+
+    lr = LinearRegression(fit_intercept=False)
+    n_relevant = 10
+    X = np.arange(n_relevant).reshape(-1, 1)
+    y = auto[:n_relevant]
+    lr.fit(X, np.log(y))
+    alpha = np.exp(lr.coef_[0])
+
     fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-    t = np.arange(500)
-    auto = autocorr4(standardized_temperatures)
-    tauto = np.exp(t * np.log(auto[1]))
-    ax.plot(t, auto[t], "o")
-    ax.plot(t, tauto, "r")
+    t = np.arange(50)
+    tauto = np.exp(t * np.log(alpha))
+    ax.axhline(0, color="black", ls="dotted")
+    ax.plot(t, auto[t], "o", label="Empirical autocorrelation")
+    ax.plot(t, tauto, "r", label=f"Exponential decay ($\\alpha={alpha:.2f}$)")
+    ax.set_xlim(0, 50)
+    ax.set_xlabel("Lag (days)")
+    ax.set_ylabel("Autocorrelation")
+    ax.legend()
+    ax.grid()
+    fig.savefig(output("Temporal trends analyses/autocorrelation_analysis.png"))
     plt.show()
 
     # standardized_temperatures = np.random.normal(0, 1, N)
@@ -144,8 +174,6 @@ if __name__ == "__main__":
     ax.plot(x, normal_distribution, label="Normal distribution", color="red")
     ax.fill_between(x, ci_inf, ci_sup, color="red", alpha=0.3)
     plt.show()
-
-    from sklearn.linear_model import LinearRegression
 
     lr = LinearRegression(fit_intercept=False)
 
