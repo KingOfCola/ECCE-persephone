@@ -15,29 +15,29 @@ import seaborn as sns
 import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression
 
-from utils.paths import data, output
+from utils.paths import data_dir, output
 
 
 def autocorr3(x):
-    '''fft, pad 0s, non partial
-    
+    """fft, pad 0s, non partial
+
     Code from https://stackoverflow.com/a/51168178/25980698
-    '''
+    """
 
-    n=len(x)
+    n = len(x)
     # pad 0s to 2n-1
-    ext_size=2*n-1
+    ext_size = 2 * n - 1
     # nearest power of 2
-    fsize=2**np.ceil(np.log2(ext_size)).astype('int')
+    fsize = 2 ** np.ceil(np.log2(ext_size)).astype("int")
 
-    xp=x-np.mean(x)
-    var=np.var(x)
+    xp = x - np.mean(x)
+    var = np.var(x)
 
     # do fft and ifft
-    cf=np.fft.fft(xp,fsize)
-    sf=cf.conjugate()*cf
-    corr=np.fft.ifft(sf).real
-    corr=corr/var/n
+    cf = np.fft.fft(xp, fsize)
+    sf = cf.conjugate() * cf
+    corr = np.fft.ifft(sf).real
+    corr = corr / var / n
 
     return corr
 
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     N = YEARS * DAYS_IN_YEAR
 
     temperatures_stations = pd.read_parquet(
-        data(r"Preprocessed/1958_2024-05_T_Q.parquet")
+        data_dir(r"Meteo-France_QUOT-SIM/Preprocessed/1958_2024-05_T_Q.parquet")
     )
 
     temperatures_stations.reset_index(inplace=True)
@@ -122,7 +122,9 @@ if __name__ == "__main__":
     plt.show()
 
     # Autocorrelation
-    f = spline_interpolation(np.arange(N), standardized_temperatures, step=5 * DAYS_IN_YEAR)
+    f = spline_interpolation(
+        np.arange(N), standardized_temperatures, step=5 * DAYS_IN_YEAR
+    )
     detrended_temperatures = standardized_temperatures - f(np.arange(N))
 
     auto = autocorr3(detrended_temperatures)
@@ -145,7 +147,11 @@ if __name__ == "__main__":
     ax.set_ylabel("Autocorrelation")
     ax.legend()
     ax.grid()
-    fig.savefig(output("Temporal trends analyses/autocorrelation_analysis.png"))
+    fig.savefig(
+        output(
+            "Meteo-France_QUOT-SIM/Temporal trends analyses/autocorrelation_analysis.png"
+        )
+    )
     plt.show()
 
     # standardized_temperatures = np.random.normal(0, 1, N)
