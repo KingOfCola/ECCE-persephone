@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -10,7 +9,7 @@ from scipy.optimize import minimize
 from scipy.integrate import quad
 from tqdm import tqdm
 
-from utils.paths import data, output
+from utils.paths import data_dir, output
 from plots.mapplot import plot_map, set_lims
 
 if __name__ == "__main__":
@@ -22,11 +21,13 @@ if __name__ == "__main__":
     N = YEARS * DAYS_IN_YEAR
     STATION = "S8234"
 
-    station_locations = pd.read_parquet(data(r"Preprocessed/stations.parquet"))
+    station_locations = pd.read_parquet(
+        data_dir(r"Meteo-France_QUOT-SIM/Preprocessed/stations.parquet")
+    )
     station_loc = station_locations.loc[station_locations["station_id"] == STATION]
 
     temperatures_stations = pd.read_parquet(
-        data(r"Preprocessed/1958_2024-05_T_Q.parquet")
+        data_dir(r"Meteo-France_QUOT-SIM/Preprocessed/1958_2024-05_T_Q.parquet")
     )
 
     temperatures_stations.reset_index(inplace=True)
@@ -39,14 +40,13 @@ if __name__ == "__main__":
     days = temperatures_stations["day_of_year"].values
     time = years + days / DAYS_IN_YEAR
 
-
     temperatures = temperatures_stations[STATION].values
 
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(time, temperatures)
     ax.set_xlabel("Time")
     ax.xaxis.set_major_locator(MultipleLocator(1))
-    ax.xaxis.set_minor_locator(MultipleLocator(1/12))
+    ax.xaxis.set_minor_locator(MultipleLocator(1 / 12))
     ax.set_ylabel("Mean temperature")
     ax.set_title(f"Temperature profile of station {STATION}")
 
