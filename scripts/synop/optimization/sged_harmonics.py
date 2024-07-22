@@ -5,7 +5,8 @@
 @Author    :   Urvan Christen
 @Version   :   1.0
 @Contact   :   urvan.christen@gmail.com
-@Desc      :   Scripts for visualizing the time fluctuation of the temperature profiles
+@Desc      :   Script for the analysis of the time fluctuation of a metric profile
+    in the SYNOP dataset
 """
 
 import pandas as pd
@@ -16,6 +17,7 @@ from matplotlib.ticker import MultipleLocator
 import seaborn as sns
 import statsmodels.api as sm
 from scipy import stats
+from scipy.signal import find_peaks
 from tqdm import tqdm
 
 from core.distributions.sged import (
@@ -24,6 +26,12 @@ from core.distributions.sged import (
     maximize_llhood_sged,
     maximize_llhood_sged_harmonics,
 )
+from core.distributions.excess_likelihood import (
+    pce,
+    pcei,
+    correlation_to_alpha,
+    excess_likelihood_inertial,
+)
 from core.optimization.harmonics import (
     harmonics_parameter_valuation,
     extract_harmonics,
@@ -31,7 +39,7 @@ from core.optimization.harmonics import (
 )
 from core.optimization.interpolation import spline_interpolation
 
-from plots.annual import month_xaxis
+from plots.annual import month_xaxis, MONTHS_CENTER, MONTHS_LABELS_3, MONTHS_STARTS
 
 from utils.paths import data_dir, output
 
@@ -40,8 +48,9 @@ if __name__ == "__main__":
     # ================================================================================================
     # Data loading
     # ================================================================================================
+    METRIC = "t_MAX"
     temperatures_stations = pd.read_parquet(
-        data_dir(r"Meteo-France_QUOT-SIM/Preprocessed/1958_2024-05_T_Q.parquet")
+        data_dir(rf"Meteo-France_SYNOP/Preprocessed/{METRIC}.parquet")
     ).reset_index()
 
     # ================================================================================================
@@ -49,7 +58,6 @@ if __name__ == "__main__":
     # ================================================================================================
     DAYS_IN_YEAR = 365
     N_HARMONICS = 2
-    SLIDING_WINDOW = 1
 
     # Finds the first and last full years in the dataset
     FULL_YEAR_MIN = temperatures_stations.loc[
@@ -63,23 +71,15 @@ if __name__ == "__main__":
     N = YEARS * DAYS_IN_YEAR
 
     # Station to consider
-    STATION = "S1000"
+    STATION = 7481
 
     # Output directory
-    OUTPUT_DIR = output(
-        f"Meteo-France_QUOT-SIM/SGED harmonics/sliding_{SLIDING_WINDOW:0>2d}_days/{STATION}"
-    )
+    OUTPUT_DIR = output(f"Meteo-France_SYNOP/SGED harmonics/{METRIC}/{STATION}")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # ================================================================================================
     # Data processing
     # ================================================================================================
-    # Rolling means
-    # ---------------------------------------------
-    temperatures_stations = temperatures_stations.rolling(
-        SLIDING_WINDOW, center=False
-    ).mean()
-
     # Seasonality and trend removal
     # ---------------------------------------------
 
@@ -235,8 +235,13 @@ if __name__ == "__main__":
     # ---------------------------------------------
     # Visualization of the parameters of the SGED model
     doy = np.linspace(0, 1, DAYS_IN_YEAR)
+    popt_season = np.copy(popt)
+    popt_season[0] += np.abs(harmonics)[0]
+    popt_season[1 : len(harmonics) * 2 - 1 : 2] += np.real(harmonics)[1:]
+    popt_season[2 : len(harmonics) * 2 : 2] += np.imag(harmonics)[1:]
+
     popt_doy = harmonics_parameter_valuation(
-        popt, t=doy, n_harmonics=N_HARMONICS, n_params=4
+        popt_season, t=doy, n_harmonics=N_HARMONICS, n_params=4
     )
 
     fig, axes = plt.subplots(4, 1, figsize=(6, 10), sharex=True)
@@ -251,6 +256,44 @@ if __name__ == "__main__":
     ax.set_xlim(0, DAYS_IN_YEAR)
     fig.savefig(os.path.join(OUTPUT_DIR, "sged-parameters-wrt-doy.png"))
     plt.show()
+
+    # SGED visualization month per month
+    # ---------------------------------------------
+    fig, ax = plt.subplots(figsize=(7, 10))
+    fig.suptitle("SGED-fitted temperatures per month")
+    popt_months = harmonics_parameter_valuation(
+        popt_season,
+        t=np.array(MONTHS_CENTER) / DAYS_IN_YEAR,
+        n_harmonics=N_HARMONICS,
+        n_params=4,
+    )
+
+    season_colors = ["#70d6ff", "#90a955", "#ffd670", "#ff9770"]
+    temp = np.linspace(-15, 45, 100)
+
+    for month in range(12):
+        month_center = MONTHS_CENTER[month]
+        month_label = MONTHS_LABELS_3[month]
+
+        popt_month = popt_months[:, month]
+        pdf_month = sged(temp, *popt_month)
+        pdf_month /= np.max(pdf_month)
+
+        ax.fill_between(
+            temp,
+            month,
+            month + pdf_month * 0.8,
+            alpha=0.5,
+            fc=season_colors[(month + 1) // 3 % 4],
+        )
+
+    ax.set_yticks(np.arange(12))
+    ax.set_yticklabels(MONTHS_LABELS_3)
+    ax.set_xlabel("Temperature (°C)")
+    ax.set_ylabel("Month")
+    ax.set_ylim(0, 12)
+    ax.grid(which="both", axis="both", linewidth=0.5)
+    fig.savefig(os.path.join(OUTPUT_DIR, "sged-distributions-wrt-month.png"))
 
     # Return period visualization
     # ---------------------------------------------
@@ -295,4 +338,93 @@ if __name__ == "__main__":
     axes[1].set_ylabel("Temperature (°C)")
     axes[1].set_xlabel("Time (years)")
     fig.savefig(os.path.join(OUTPUT_DIR, "return-period-vs-time.png"))
+    plt.show()
+
+    # Return period of consecutive days
+    # ---------------------------------------------
+    n_consecutive = 2
+    local_cdf_ndim = np.zeros((N, n_consecutive))
+    for i in range(n_consecutive):
+        local_cdf_ndim[-i:, i] = 0.5
+        local_cdf_ndim[: N - i, i] = local_cdf[i:]
+
+    rho = np.corrcoef(local_cdf_ndim, rowvar=False)[0, 1]
+    alpha = correlation_to_alpha(rho)
+
+    excess_llhood_consecutive = excess_likelihood_inertial(local_cdf_ndim, alpha=alpha)
+    excess_cdf_consecutive = pcei(local_cdf_ndim, alpha=alpha)
+    excess_cdf_consecutive[np.isnan(excess_cdf_consecutive)] = 1.0
+
+    return_period_consecutive_days = 1 / excess_cdf_consecutive
+    return_period_consecutive_years = return_period_consecutive_days / DAYS_IN_YEAR
+
+    consecutive_extremes = find_peaks(
+        return_period_consecutive_years, distance=10, height=1.0
+    )[0]
+    consecutive_extremes_order = np.argsort(
+        return_period_consecutive_years[consecutive_extremes]
+    )
+    most_consecutive_extremes = consecutive_extremes[
+        consecutive_extremes_order[-n_extremes:]
+    ]
+
+    time_of_consecutive_occurence = time[most_consecutive_extremes]
+    date_of_consecutive_occurence = [
+        pd.to_datetime(f"{years[i]:.0f}-{days[i]:.0f}", format="%Y-%j")
+        for i in most_consecutive_extremes
+    ]
+    temperatures_of_consecutive_occurence = temperatures[most_consecutive_extremes]
+
+    # qq-plot of the pce inertial
+    q = np.linspace(0, 1, len(excess_cdf_consecutive), endpoint=True)
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.plot(q, np.sort(excess_cdf_consecutive))
+    ax.axline((0, 0), slope=1, c="r", ls="--")
+    ax.set_xlabel("Quantile")
+    ax.set_ylabel("Probability of consecutive excesses")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_aspect(1)
+
+    # Temporal evolution of the return period of consecutive days
+    fig, axes = plt.subplots(2, sharex=True, figsize=(10, 8))
+    axes[0].plot(time, return_period_consecutive_years)
+    axes[0].scatter(
+        time_of_consecutive_occurence,
+        return_period_consecutive_years[most_consecutive_extremes],
+        c="r",
+    )
+    for i, txt in enumerate(date_of_consecutive_occurence):
+        axes[0].annotate(
+            txt.strftime("%Y-%m-%d")
+            + f"\n{temperatures_of_consecutive_occurence[i]:.1f}°C",
+            (
+                time_of_consecutive_occurence[i],
+                return_period_consecutive_years[most_consecutive_extremes[i]],
+            ),
+            xytext=(5, 5),
+            textcoords="offset points",
+            arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.3"),
+        )
+    axes[0].set_ylim(0.1, None)
+    axes[0].set_yscale("log")
+
+    axes[1].plot(time, temperatures)
+    axes[1].plot(time, seasonality + trend, c="r")
+
+    axes[0].set_ylabel("Return period (years)")
+    axes[1].set_ylabel("Temperature (°C)")
+    axes[1].set_xlabel("Time (years)")
+
+    axes[1].xaxis.set_major_locator(MultipleLocator(5))
+    axes[1].xaxis.set_minor_locator(MultipleLocator(1))
+    axes[0].grid(True, axis="both", which="major")
+    axes[0].grid(True, axis="both", which="minor", alpha=0.3)
+    axes[1].grid(True, axis="both", which="major")
+    axes[1].grid(True, axis="x", which="minor", alpha=0.3)
+    fig.savefig(
+        os.path.join(
+            OUTPUT_DIR, f"return-period-consecutive-{n_consecutive}-vs-time.png"
+        )
+    )
     plt.show()
