@@ -140,5 +140,5 @@ def get_path_factory(root: str):
     return get_path
 
 
-data = get_path_factory("data")
+data_dir = get_path_factory("data")
 output = get_path_factory("output")

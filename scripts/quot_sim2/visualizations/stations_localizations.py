@@ -19,10 +19,10 @@ from plots.histograms import custom_histogram
 
 if __name__ == "__main__":
     # Define the directories
-    dirname = paths.data(r"Quot_SIM2")
+    dirname = paths.data_dir(r"Meteo-France_QUOT-SIM/Quot_SIM2")
     raw_dir = rf"{dirname}\Raw"
     preprocessed_dir = rf"{dirname}\Preprocessed"
-    output_dir = paths.output(r"Quot_SIM2\Description")
+    output_dir = paths.output(r"Meteo-France_QUOT-SIM/Quot_SIM2\Description")
     os.makedirs(output_dir, exist_ok=True)
 
     # Load the stations data

@@ -15,7 +15,7 @@ import os
 from matplotlib import pyplot as plt
 
 from plots.mapplot import plot_map, set_lims
-from utils.paths import data, output
+from utils.paths import data_dir, output
 
 if __name__ == "__main__":
     FULL_YEAR_MIN = 1959
@@ -27,12 +27,14 @@ if __name__ == "__main__":
 
     SEED = 42
 
-    OUTPUT_DIR = output("Stations clustering")
+    OUTPUT_DIR = output("Meteo-France_QUOT-SIM/Stations clustering")
 
     temperatures_stations = pd.read_parquet(
-        data(r"Preprocessed/1958_2024-05_T_Q.parquet")
+        data_dir(r"Meteo-France_QUOT-SIM/Preprocessed/1958_2024-05_T_Q.parquet")
     )
-    stations = pd.read_parquet(data(r"Preprocessed/stations.parquet"))
+    stations = pd.read_parquet(
+        data_dir(r"Meteo-France_QUOT-SIM/Preprocessed/stations.parquet")
+    )
 
     temperatures_stations.reset_index(inplace=True)
     temperatures_stations = temperatures_stations.loc[
@@ -40,7 +42,6 @@ if __name__ == "__main__":
         & (temperatures_stations["day_of_year"] <= DAYS_IN_YEAR)
     ]
 
-    
     temperatures = temperatures_stations.drop(columns=["year", "day_of_year"]).values.T
     temperatures_centered = (
         temperatures - temperatures.mean(axis=1, keepdims=True)
@@ -49,11 +50,12 @@ if __name__ == "__main__":
 
     corr = np.corrcoef(temperatures_centered, rowvar=True)
 
-    #---------------------------------------------
+    # ---------------------------------------------
     # Clustering methods
-    #---------------------------------------------
+    # ---------------------------------------------
     ## KMeans
     from sklearn.cluster import KMeans
+
     coordinates = stations[["longitude", "latitude"]].values
 
     kmeans_dir = os.path.join(OUTPUT_DIR, "KMeans")
@@ -80,7 +82,6 @@ if __name__ == "__main__":
         fig.savefig(os.path.join(kmeans_dir, f"temperature-clustering_{n_cluster}.png"))
         plt.show()
 
-    
     ## Gaussian Mixture
     from sklearn.mixture import GaussianMixture
 
@@ -93,14 +94,18 @@ if __name__ == "__main__":
         y = model.predict(temperatures_centered)
 
         fig, ax = plt.subplots(figsize=(6, 6))
-        ax.scatter(coordinates[:, 0], coordinates[:, 1], c=y, cmap="rainbow", s=5, marker="s")
+        ax.scatter(
+            coordinates[:, 0], coordinates[:, 1], c=y, cmap="rainbow", s=5, marker="s"
+        )
         plot_map("europe", ax=ax, ec="k")
         set_lims(ax, 40, 55, -7, 13)
         ax.set_xlabel("Longitude (°)")
         ax.set_ylabel("Latitude (°)")
         ax.set_aspect(1)
         ax.set_title(f"Number of clusters: {n_cluster}")
-        fig.savefig(os.path.join(gaussian_dir, f"temperature-clustering_{n_cluster}.png"))
+        fig.savefig(
+            os.path.join(gaussian_dir, f"temperature-clustering_{n_cluster}.png")
+        )
         plt.show()
 
     ## Hierarchical clustering
@@ -128,7 +133,11 @@ if __name__ == "__main__":
         plot_map("europe", ax=ax, ec="k")
         set_lims(ax, 40, 55, -7, 13)
         ax.set_title(f"Number of clusters: {n_cluster}")
-        fig.savefig(output("Quot_SIM2/Clustering/temperature-clustering_complete-8.png"))
+        fig.savefig(
+            output(
+                "Meteo-France_QUOT-SIM/Quot_SIM2/Clustering/temperature-clustering_complete-8.png"
+            )
+        )
         plt.show()
 
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -157,9 +166,9 @@ if __name__ == "__main__":
     )
     plt.show()
 
-    #---------------------------------------------
+    # ---------------------------------------------
     # Dimensionality reduction
-    #---------------------------------------------
+    # ---------------------------------------------
     ## PCA
     from sklearn.decomposition import PCA
     import seaborn as sns
@@ -173,4 +182,3 @@ if __name__ == "__main__":
     sns.histplot(pd.DataFrame(X), x=1, y=2, ax=axes[1, 0])
     sns.histplot(pd.DataFrame(X), x=0, ax=axes[1, 1])
     plt.show()
-
