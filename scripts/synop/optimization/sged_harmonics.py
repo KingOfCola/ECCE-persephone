@@ -45,6 +45,8 @@ from utils.paths import data_dir, output
 
 
 if __name__ == "__main__":
+    plt.rcParams.update({"text.usetex": True})  # Use LaTeX rendering
+
     # ================================================================================================
     # Data loading
     # ================================================================================================
@@ -310,13 +312,17 @@ if __name__ == "__main__":
     ]
     temperatures_of_occurence = temperatures[most_extremes]
 
-    # Temporal evolution of the return period
-    fig, ax = plt.subplots()
-    ax.plot(time, return_period_years)
-
-    ax.set_xlabel("Time (years)")
-    ax.set_ylabel("Return period (years)")
-    fig.savefig(os.path.join(OUTPUT_DIR, "return-period-vs-time.png"))
+    # qq-plot of the pce independent
+    q = np.linspace(0, 1, len(local_cdf), endpoint=True)
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.plot(q, np.sort(local_cdf), "o", markersize=2)
+    ax.axline((0, 0), slope=1, c="r", ls="--")
+    ax.set_xlabel("Quantile")
+    ax.set_ylabel("Probability of consecutive excesses")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_aspect(1)
+    fig.savefig(os.path.join(OUTPUT_DIR, "pcei-n1-qqplot.png"))
 
     # Temporal evolution of the return period
     fig, axes = plt.subplots(2, sharex=True, figsize=(10, 8))
@@ -326,82 +332,6 @@ if __name__ == "__main__":
         axes[0].annotate(
             txt.strftime("%Y-%m-%d") + f"\n{temperatures_of_occurence[i]:.1f}°C",
             (time_of_occurence[i], return_period_years[most_extremes[i]]),
-            xytext=(5, 5),
-            textcoords="offset points",
-            arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.3"),
-        )
-
-    axes[1].plot(time, temperatures)
-    axes[1].plot(time, seasonality + trend, c="r")
-
-    axes[0].set_ylabel("Return period (years)")
-    axes[1].set_ylabel("Temperature (°C)")
-    axes[1].set_xlabel("Time (years)")
-    fig.savefig(os.path.join(OUTPUT_DIR, "return-period-vs-time.png"))
-    plt.show()
-
-    # Return period of consecutive days
-    # ---------------------------------------------
-    n_consecutive = 2
-    local_cdf_ndim = np.zeros((N, n_consecutive))
-    for i in range(n_consecutive):
-        local_cdf_ndim[-i:, i] = 0.5
-        local_cdf_ndim[: N - i, i] = local_cdf[i:]
-
-    rho = np.corrcoef(local_cdf_ndim, rowvar=False)[0, 1]
-    alpha = correlation_to_alpha(rho)
-
-    excess_llhood_consecutive = excess_likelihood_inertial(local_cdf_ndim, alpha=alpha)
-    excess_cdf_consecutive = pcei(local_cdf_ndim, alpha=alpha)
-    excess_cdf_consecutive[np.isnan(excess_cdf_consecutive)] = 1.0
-
-    return_period_consecutive_days = 1 / excess_cdf_consecutive
-    return_period_consecutive_years = return_period_consecutive_days / DAYS_IN_YEAR
-
-    consecutive_extremes = find_peaks(
-        return_period_consecutive_years, distance=10, height=1.0
-    )[0]
-    consecutive_extremes_order = np.argsort(
-        return_period_consecutive_years[consecutive_extremes]
-    )
-    most_consecutive_extremes = consecutive_extremes[
-        consecutive_extremes_order[-n_extremes:]
-    ]
-
-    time_of_consecutive_occurence = time[most_consecutive_extremes]
-    date_of_consecutive_occurence = [
-        pd.to_datetime(f"{years[i]:.0f}-{days[i]:.0f}", format="%Y-%j")
-        for i in most_consecutive_extremes
-    ]
-    temperatures_of_consecutive_occurence = temperatures[most_consecutive_extremes]
-
-    # qq-plot of the pce inertial
-    q = np.linspace(0, 1, len(excess_cdf_consecutive), endpoint=True)
-    fig, ax = plt.subplots(figsize=(5, 5))
-    ax.plot(q, np.sort(excess_cdf_consecutive))
-    ax.axline((0, 0), slope=1, c="r", ls="--")
-    ax.set_xlabel("Quantile")
-    ax.set_ylabel("Probability of consecutive excesses")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.set_aspect(1)
-
-    # Temporal evolution of the return period of consecutive days
-    fig, axes = plt.subplots(2, sharex=True, figsize=(10, 8))
-    axes[0].plot(time, return_period_consecutive_years)
-    axes[0].scatter(
-        time_of_consecutive_occurence,
-        return_period_consecutive_years[most_consecutive_extremes],
-        c="r",
-    )
-    for i, txt in enumerate(date_of_consecutive_occurence):
-        axes[0].annotate(
-            txt.strftime("%Y-%m-%d")
-            + f"\n{temperatures_of_consecutive_occurence[i]:.1f}°C",
-            (
-                time_of_consecutive_occurence[i],
-                return_period_consecutive_years[most_consecutive_extremes[i]],
-            ),
             xytext=(5, 5),
             textcoords="offset points",
             arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.3"),
@@ -422,9 +352,140 @@ if __name__ == "__main__":
     axes[0].grid(True, axis="both", which="minor", alpha=0.3)
     axes[1].grid(True, axis="both", which="major")
     axes[1].grid(True, axis="x", which="minor", alpha=0.3)
-    fig.savefig(
-        os.path.join(
-            OUTPUT_DIR, f"return-period-consecutive-{n_consecutive}-vs-time.png"
-        )
-    )
+
+    fig.savefig(os.path.join(OUTPUT_DIR, "return-period-vs-time.png"))
     plt.show()
+
+    # Return period of consecutive days
+    # ---------------------------------------------
+    n_consecutives = [2, 8, 4]
+    for n_consecutive in n_consecutives:
+        local_cdf_ndim = np.zeros((N, n_consecutive))
+        for i in range(n_consecutive):
+            local_cdf_ndim[-i:, i] = 0.5
+            local_cdf_ndim[: N - i, i] = local_cdf[i:]
+
+        # Spearman correlation
+        rho = np.corrcoef(local_cdf_ndim, rowvar=False)[0, 1]
+        rho_spearman, _ = stats.spearmanr(local_cdf_ndim)
+        alpha = correlation_to_alpha(rho)
+
+        # excess_llhood_consecutive = excess_likelihood_inertial(
+        #     local_cdf_ndim, alpha=alpha
+        # )
+        excess_cdf_consecutive = pcei(local_cdf_ndim, alpha=alpha)
+
+        return_period_consecutive_days = 1 / excess_cdf_consecutive
+        return_period_consecutive_years = return_period_consecutive_days / DAYS_IN_YEAR
+
+        consecutive_extremes = find_peaks(
+            return_period_consecutive_years, distance=10, height=1.0
+        )[0]
+        consecutive_extremes_order = np.argsort(
+            return_period_consecutive_years[consecutive_extremes]
+        )
+        most_consecutive_extremes = consecutive_extremes[
+            consecutive_extremes_order[-n_extremes:]
+        ]
+
+        time_of_consecutive_occurence = time[most_consecutive_extremes]
+        date_of_consecutive_occurence = [
+            pd.to_datetime(f"{years[i]:.0f}-{days[i]:.0f}", format="%Y-%j")
+            for i in most_consecutive_extremes
+        ]
+        temperatures_of_consecutive_occurence = temperatures[most_consecutive_extremes]
+
+        # qq-plot of the pce inertial
+        q = np.linspace(0, 1, len(excess_cdf_consecutive), endpoint=True)
+        fig, ax = plt.subplots(figsize=(5, 5))
+        ax.plot(q, np.sort(excess_cdf_consecutive), "o", markersize=2)
+        ax.axline((0, 0), slope=1, c="r", ls="--")
+        ax.set_xlabel("Quantile")
+        ax.set_ylabel("Probability of consecutive excesses")
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_aspect(1)
+        fig.savefig(os.path.join(OUTPUT_DIR, f"pcei-n{n_consecutive}-qqplot.png"))
+        plt.show()
+
+        # qq-plot of the pce inertial
+        q = (np.arange(len(excess_cdf_consecutive)) + 0.5) / len(excess_cdf_consecutive)
+        fig, ax = plt.subplots(figsize=(5, 5))
+        ax.plot(
+            stats.norm.ppf(q),
+            np.clip(stats.norm.ppf(np.sort(excess_cdf_consecutive)), -5, 5),
+            "o",
+            markersize=2,
+        )
+        ax.axline((0, 0), slope=1, c="r", ls="--")
+        ax.set_xlabel("Quantile of normal distribution")
+        ax.set_ylabel("Normal equivalent of probability of consecutive excesses")
+        ax.set_aspect(1)
+        fig.savefig(
+            os.path.join(OUTPUT_DIR, f"pcei-n{n_consecutive}-normal-qqplot.png")
+        )
+        plt.show()
+
+        # Temporal evolution of the return period of consecutive days
+        fig, axes = plt.subplots(2, sharex=True, figsize=(10, 8))
+        axes[0].plot(time, return_period_consecutive_years)
+        axes[0].scatter(
+            time_of_consecutive_occurence,
+            return_period_consecutive_years[most_consecutive_extremes],
+            c="r",
+        )
+        for i, txt in enumerate(date_of_consecutive_occurence):
+            axes[0].annotate(
+                txt.strftime("%Y-%m-%d")
+                + f"\n{temperatures_of_consecutive_occurence[i]:.1f}°C",
+                (
+                    time_of_consecutive_occurence[i],
+                    return_period_consecutive_years[most_consecutive_extremes[i]],
+                ),
+                xytext=(5, 5),
+                textcoords="offset points",
+                arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.3"),
+            )
+        axes[0].set_ylim(0.1, None)
+        axes[0].set_yscale("log")
+
+        axes[1].plot(time, temperatures)
+        axes[1].plot(time, seasonality + trend, c="r")
+
+        axes[0].set_ylabel("Return period (years)")
+        axes[1].set_ylabel("Temperature (°C)")
+        axes[1].set_xlabel("Time (years)")
+
+        axes[1].xaxis.set_major_locator(MultipleLocator(5))
+        axes[1].xaxis.set_minor_locator(MultipleLocator(1))
+        axes[0].grid(True, axis="both", which="major")
+        axes[0].grid(True, axis="both", which="minor", alpha=0.3)
+        axes[1].grid(True, axis="both", which="major")
+        axes[1].grid(True, axis="x", which="minor", alpha=0.3)
+        fig.savefig(
+            os.path.join(
+                OUTPUT_DIR, f"return-period-consecutive-{n_consecutive}-vs-time.png"
+            )
+        )
+        plt.show()
+
+    # ===============================================================================================
+    # Return period comparison
+    # ================================================================================================
+    # Return period of consecutive days vs single day
+    u = np.zeros((1001, 2))
+    u[:, 0] = np.linspace(1e-6, 1 - 1e-6, u.shape[0], endpoint=True)  # Single day
+    pce_single = pcei(u[:, :1], alpha=alpha)
+    pce_consecutive = pcei(u, alpha=alpha)
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.plot(return_period_years, return_period_consecutive_years, "o", markersize=2)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.plot(1 / pce_single / DAYS_IN_YEAR, 1 / pce_consecutive / DAYS_IN_YEAR, "r--")
+    # ax.axline((.01, .005), (1, .2), c="r", lw=1, ls="--")
+    ax.set_xlabel("Return period of single days (years)")
+    ax.set_ylabel(f"Return period of {n_consecutive}-consecutive days (years)")
+    ax.grid(True, which="major", axis="both", linewidth=0.5)
+    ax.grid(True, which="minor", axis="both", linewidth=0.5, alpha=0.3)
+    fig.savefig(os.path.join(OUTPUT_DIR, "return-period-comparison.png"))

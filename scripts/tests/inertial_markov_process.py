@@ -10,7 +10,7 @@ from core.distributions.excess_likelihood import pce, excess_likelihood, Gn
 def upsilon(x, alpha, beta=None):
     # In the case of a symmetric distribution
     if beta is None:
-        beta = 1 - alpha
+        beta = 1.0 - alpha
 
     x = np.clip(x, 0, 1)
 
@@ -19,10 +19,10 @@ def upsilon(x, alpha, beta=None):
             return x**2 / (2 * alpha * beta)
         if x < beta:
             return (2 * x - alpha) / (2 * beta)
-        return 1 - (alpha + beta - x) ** 2 / (2 * alpha * beta)
+        return 1.0 - (alpha + beta - x) ** 2 / (2 * alpha * beta)
     else:
         if x < 0:
-            return 0
+            return 0.0
         if x < beta:
             return x**2 / (2 * alpha * beta)
         if x < alpha:

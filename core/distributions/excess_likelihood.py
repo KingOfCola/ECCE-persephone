@@ -1,5 +1,10 @@
 import numpy as np
 
+from core.distributions.ecdf import ecdf_multivariate
+
+SIMULATION_FACTOR_OUT = 100
+SIMULATION_FACTOR_IN = 10
+
 
 def excess_likelihood(u: np.ndarray, log: bool = False) -> np.ndarray:
     """
@@ -152,24 +157,28 @@ def alpha_to_correlation(alpha: float) -> float:
 def upsilon(x, alpha, beta=None):
     # In the case of a symmetric distribution
     if beta is None:
-        beta = 1 - alpha
+        beta = 1.0 - alpha
 
-    x = np.clip(x, 0, 1)
+    x = np.clip(x, 0.0, 1.0)
 
     if alpha <= beta:
         if x < alpha:
             return x**2 / (2 * alpha * beta)
         if x < beta:
             return (2 * x - alpha) / (2 * beta)
-        return 1 - (alpha + beta - x) ** 2 / (2 * alpha * beta)
+        if x <= alpha + beta:
+            return 1 - (alpha + beta - x) ** 2 / (2 * alpha * beta)
+        return 1.0
     else:
         if x < 0:
-            return 0
+            return 0.0
         if x < beta:
             return x**2 / (2 * alpha * beta)
         if x < alpha:
             return (2 * x - beta) / (2 * alpha)
-        return 1 - (alpha + beta - x) ** 2 / (2 * alpha * beta)
+        if x <= alpha + beta:
+            return 1 - (alpha + beta - x) ** 2 / (2 * alpha * beta)
+        return 1.0
 
 
 @np.vectorize
@@ -198,6 +207,60 @@ def upsilon_inv(x, alpha, beta=None):
         if x <= 1:
             return alpha + beta - np.sqrt(2 * alpha * beta * (1 - x))
         return np.inf
+
+
+def inertial_markov_process(n: int, alpha: float) -> np.ndarray:
+    """
+    Generate a sequence of samples from a uniform distribution with inertia.
+
+    Parameters
+    ----------
+    n : int
+        The number of samples to generate.
+    alpha : float
+        The coefficient of inertia.
+
+    Returns
+    -------
+    np.ndarray of shape `(n,)`
+        The samples from the uniform distribution with inertia.
+    """
+    v = np.random.rand(n)
+    u = np.zeros(n)
+
+    u[0] = v[0]
+
+    for i in range(1, n):
+        x = alpha * u[i - 1] + (1 - alpha) * v[i]
+        u[i] = upsilon(x, alpha)
+
+    return u
+
+
+def uniform_inertial(n: int, p: int, alpha: float) -> np.ndarray:
+    """
+    Generate a sequence of samples from a uniform distribution with inertia.
+
+    Parameters
+    ----------
+    n : int
+        The number of samples to generate.
+    p : int
+        The number of dimensions.
+    alpha : float
+        The coefficient of inertia.
+
+    Returns
+    -------
+    np.ndarray of shape `(n, p)`
+        The samples from the uniform distribution with inertia.
+    """
+    u = np.random.rand(n, p)
+    for i in range(1, p):
+        u[:, i] = alpha * u[:, i - 1] + (1 - alpha) * u[:, i]
+        u[:, i] = upsilon(u[:, i], alpha, 1 - alpha)
+
+    return u
 
 
 @np.vectorize
@@ -303,9 +366,17 @@ def pcei(u: np.ndarray, alpha: float) -> np.ndarray:
     (n, p) = u.shape
 
     if p == 1:
-        return u
+        return 1 - u[:, 0]
 
     if p == 2:
         gamma = (1 - alpha) / alpha
         ex_llhood = excess_likelihood_inertial(u, alpha=alpha)
         return G2(ex_llhood, gamma=gamma)
+
+    if p >= 3:
+        u_dist_out = uniform_inertial(n * SIMULATION_FACTOR_OUT, p, alpha)
+        u_dist_in = uniform_inertial(n * SIMULATION_FACTOR_IN, p, alpha)
+        ex_llhood_u = ecdf_multivariate(1 - u, 1 - u_dist_out)
+        ex_llhood_in = ecdf_multivariate(1 - u_dist_in, 1 - u_dist_out)
+
+        return ecdf_multivariate(ex_llhood_u[:, None], ex_llhood_in[:, None])
