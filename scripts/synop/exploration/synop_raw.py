@@ -65,6 +65,8 @@ if __name__ == "__main__":
             textcoords="offset points",
             xytext=(0, 5),
         )
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
     fig.savefig(os.path.join(OUT_DIR, "metropolitan_stations.png"))
 
     data_dir["datetime"] = pd.to_datetime(data_dir["date"], format="%Y%m%d%H%M%S")

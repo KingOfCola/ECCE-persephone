@@ -19,7 +19,6 @@ import statsmodels.api as sm
 from scipy import stats
 from scipy.signal import find_peaks
 from tqdm import tqdm
-from time import time as timer
 
 from core.distributions.sged import (
     sged,
@@ -52,7 +51,7 @@ if __name__ == "__main__":
     # Data loading
     # ================================================================================================
     METRIC = "preliq_SUM"
-    temperatures_stations = pd.read_parquet(
+    precip_all = pd.read_parquet(
         data_dir(rf"Meteo-France_SYNOP/Preprocessed/{METRIC}.parquet")
     ).reset_index()
 
@@ -63,11 +62,9 @@ if __name__ == "__main__":
     N_HARMONICS = 2
 
     # Finds the first and last full years in the dataset
-    FULL_YEAR_MIN = temperatures_stations.loc[
-        temperatures_stations["day_of_year"] == 1, "year"
-    ].min()
-    FULL_YEAR_MAX = temperatures_stations.loc[
-        temperatures_stations["day_of_year"] == DAYS_IN_YEAR, "year"
+    FULL_YEAR_MIN = precip_all.loc[precip_all["day_of_year"] == 1, "year"].min()
+    FULL_YEAR_MAX = precip_all.loc[
+        precip_all["day_of_year"] == DAYS_IN_YEAR, "year"
     ].max()
     YEARS = FULL_YEAR_MAX - FULL_YEAR_MIN + 1
 
@@ -77,7 +74,7 @@ if __name__ == "__main__":
     STATION = 7481
 
     # Output directory
-    OUTPUT_DIR = output(f"Meteo-France_SYNOP/SGED harmonics/{METRIC}/{STATION}")
+    OUTPUT_DIR = output(f"Meteo-France_SYNOP/Precipitations/{METRIC}/{STATION}")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # ================================================================================================
@@ -87,25 +84,23 @@ if __name__ == "__main__":
     # ---------------------------------------------
 
     # Extraction of the temperature profile
-    temperatures_stations = temperatures_stations.loc[
-        (temperatures_stations["year"].between(FULL_YEAR_MIN, FULL_YEAR_MAX))
-        & (temperatures_stations["day_of_year"] <= DAYS_IN_YEAR)
+    precip_all = precip_all.loc[
+        (precip_all["year"].between(FULL_YEAR_MIN, FULL_YEAR_MAX))
+        & (precip_all["day_of_year"] <= DAYS_IN_YEAR)
     ]
 
-    temperatures = temperatures_stations[STATION].values
+    precip = precip_all[STATION].values
 
     # Time vector (in years)
-    years = temperatures_stations["year"].values
-    days = temperatures_stations["day_of_year"].values
+    years = precip_all["year"].values
+    days = precip_all["day_of_year"].values
     time = years + days / DAYS_IN_YEAR
 
     # Harmonic extraction for seasonality removal
-    harmonics = extract_harmonics(
-        temperatures, n_harmonics=N_HARMONICS, period=DAYS_IN_YEAR
-    )
+    harmonics = extract_harmonics(precip, n_harmonics=N_HARMONICS, period=DAYS_IN_YEAR)
     seasonality = reconstruct_harmonics(harmonics, t=np.arange(N) / DAYS_IN_YEAR)
 
-    deseasoned_temperatures = temperatures - seasonality
+    deseasoned_temperatures = precip - seasonality
 
     # Trend removal
     f = spline_interpolation(time, deseasoned_temperatures, step=5)
@@ -117,7 +112,7 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
     fig.suptitle(f"Temperature profile of station {STATION}")
 
-    ax[0].plot(time, temperatures)
+    ax[0].plot(time, precip)
 
     ax[0].grid(which="major", axis="both", linewidth=0.5)
     ax[0].grid(which="minor", axis="both", linestyle="dotted", linewidth=0.5)
@@ -137,7 +132,7 @@ if __name__ == "__main__":
 
     # QQ-plot
     fig, axes = plt.subplots(1, 3, figsize=(12, 5))
-    sm.qqplot(temperatures, line="s", ax=axes[0])
+    sm.qqplot(precip, line="s", ax=axes[0])
     sm.qqplot(deseasoned_temperatures, line="s", ax=axes[1])
     sm.qqplot(deseasoned_temperatures - f(time), line="s", ax=axes[2])
     axes[0].set_title("Raw mean temperatures")
@@ -225,7 +220,7 @@ if __name__ == "__main__":
     # QQ-plot
     # ---------------------------------------------
     fig, axes = plt.subplots(1, 3, figsize=(14, 5))
-    sm.qqplot(temperatures, line="s", ax=axes[0])
+    sm.qqplot(precip, line="s", ax=axes[0])
     sm.qqplot(detrended_temperatures, line="s", ax=axes[1])
     sm.qqplot(normal_projection, line="s", ax=axes[2])
 
@@ -311,7 +306,7 @@ if __name__ == "__main__":
         pd.to_datetime(f"{years[i]:.0f}-{days[i]:.0f}", format="%Y-%j")
         for i in most_extremes
     ]
-    temperatures_of_occurence = temperatures[most_extremes]
+    temperatures_of_occurence = precip[most_extremes]
 
     # qq-plot of the pce independent
     q = np.linspace(0, 1, len(local_cdf), endpoint=True)
@@ -340,7 +335,7 @@ if __name__ == "__main__":
     axes[0].set_ylim(0.1, None)
     axes[0].set_yscale("log")
 
-    axes[1].plot(time, temperatures)
+    axes[1].plot(time, precip)
     axes[1].plot(time, seasonality + trend, c="r")
 
     axes[0].set_ylabel("Return period (years)")
@@ -374,12 +369,7 @@ if __name__ == "__main__":
         # excess_llhood_consecutive = excess_likelihood_inertial(
         #     local_cdf_ndim, alpha=alpha
         # )
-        start = timer()
-        excess_cdf_consecutive = pcei(
-            local_cdf_ndim, alpha=alpha, factor_in=20, factor_out=1000
-        )
-        end = timer()
-        print(f"pcei computation time: {end - start:.2f}s")
+        excess_cdf_consecutive = pcei(local_cdf_ndim, alpha=alpha)
 
         return_period_consecutive_days = 1 / excess_cdf_consecutive
         return_period_consecutive_years = return_period_consecutive_days / DAYS_IN_YEAR
@@ -399,7 +389,7 @@ if __name__ == "__main__":
             pd.to_datetime(f"{years[i]:.0f}-{days[i]:.0f}", format="%Y-%j")
             for i in most_consecutive_extremes
         ]
-        temperatures_of_consecutive_occurence = temperatures[most_consecutive_extremes]
+        temperatures_of_consecutive_occurence = precip[most_consecutive_extremes]
 
         # qq-plot of the pce inertial
         q = np.linspace(0, 1, len(excess_cdf_consecutive), endpoint=True)
@@ -455,7 +445,7 @@ if __name__ == "__main__":
         axes[0].set_ylim(0.1, None)
         axes[0].set_yscale("log")
 
-        axes[1].plot(time, temperatures)
+        axes[1].plot(time, precip)
         axes[1].plot(time, seasonality + trend, c="r")
 
         axes[0].set_ylabel("Return period (years)")
