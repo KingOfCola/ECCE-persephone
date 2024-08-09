@@ -344,7 +344,12 @@ def excess_likelihood_inertial(u: np.ndarray, alpha: float) -> np.ndarray:
     )
 
 
-def pcei(u: np.ndarray, alpha: float) -> np.ndarray:
+def pcei(
+    u: np.ndarray,
+    alpha: float,
+    factor_in: int = SIMULATION_FACTOR_IN,
+    factor_out: int = SIMULATION_FACTOR_OUT,
+) -> np.ndarray:
     """
     Computes the probability of consecutive samples to have this excess
     likelihood or greater.
@@ -374,8 +379,8 @@ def pcei(u: np.ndarray, alpha: float) -> np.ndarray:
         return G2(ex_llhood, gamma=gamma)
 
     if p >= 3:
-        u_dist_out = uniform_inertial(n * SIMULATION_FACTOR_OUT, p, alpha)
-        u_dist_in = uniform_inertial(n * SIMULATION_FACTOR_IN, p, alpha)
+        u_dist_out = uniform_inertial(n * factor_in, p, alpha)
+        u_dist_in = uniform_inertial(n * factor_out, p, alpha)
         ex_llhood_u = ecdf_multivariate(1 - u, 1 - u_dist_out)
         ex_llhood_in = ecdf_multivariate(1 - u_dist_in, 1 - u_dist_out)
 

@@ -19,6 +19,7 @@ import statsmodels.api as sm
 from scipy import stats
 from scipy.signal import find_peaks
 from tqdm import tqdm
+from time import time as timer
 
 from core.distributions.sged import (
     sged,
@@ -373,7 +374,12 @@ if __name__ == "__main__":
         # excess_llhood_consecutive = excess_likelihood_inertial(
         #     local_cdf_ndim, alpha=alpha
         # )
-        excess_cdf_consecutive = pcei(local_cdf_ndim, alpha=alpha)
+        start = timer()
+        excess_cdf_consecutive = pcei(
+            local_cdf_ndim, alpha=alpha, factor_in=20, factor_out=1000
+        )
+        end = timer()
+        print(f"pcei computation time: {end - start:.2f}s")
 
         return_period_consecutive_days = 1 / excess_cdf_consecutive
         return_period_consecutive_years = return_period_consecutive_days / DAYS_IN_YEAR
