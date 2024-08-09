@@ -50,7 +50,7 @@ if __name__ == "__main__":
     # ================================================================================================
     # Data loading
     # ================================================================================================
-    METRIC = "t_MAX"
+    METRIC = "preliq_SUM"
     temperatures_stations = pd.read_parquet(
         data_dir(rf"Meteo-France_SYNOP/Preprocessed/{METRIC}.parquet")
     ).reset_index()
