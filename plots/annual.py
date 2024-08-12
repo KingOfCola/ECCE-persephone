@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 
 MONTHS_STARTS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365]
-MONTHS_CENTER = [15, 45, 75, 105, 135, 165, 195, 225, 255, 285, 315, 345]
+MONTHS_CENTER = [15, 45, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349]
 MONTHS_LABELS_F = [
     "January",
     "February",
@@ -57,14 +57,14 @@ def month_xaxis(ax: plt.Axes, grid: bool | str = "season", labels: str = "three"
 
     # Adds a grid
     if grid:
-        ax.grid(True, axis="both", linestyle="--", color="gainsboro")
+        ax.grid(True, axis="x", linestyle="dotted", color="gray", alpha=0.3)
 
     # Highlights the seasons
     if grid == "season":
-        ax.axvline(59, color="gray", linestyle="--")
-        ax.axvline(151, color="gray", linestyle="--")
-        ax.axvline(243, color="gray", linestyle="--")
-        ax.axvline(334, color="gray", linestyle="--")
+        ax.axvline(59, color="gray", linestyle="dotted", alpha=0.5, lw=1)
+        ax.axvline(151, color="gray", linestyle="dotted", alpha=0.5, lw=1)
+        ax.axvline(243, color="gray", linestyle="dotted", alpha=0.5, lw=1)
+        ax.axvline(334, color="gray", linestyle="dotted", alpha=0.5, lw=1)
 
 
 def month_yaxis(ax: plt.Axes, grid: bool = True, labels: str = "three"):
@@ -97,11 +97,11 @@ def month_yaxis(ax: plt.Axes, grid: bool = True, labels: str = "three"):
 
     # Adds a grid
     if grid:
-        ax.grid(True, axis="both", linestyle="--", color="gainsboro")
+        ax.grid(True, axis="y", linestyle="dotted", color="gray", alpha=0.3)
 
     # Highlights the seasons
     if grid == "season":
-        ax.axhline(59, color="gray", linestyle="--")
-        ax.axhline(151, color="gray", linestyle="--")
-        ax.axhline(243, color="gray", linestyle="--")
-        ax.axhline(334, color="gray", linestyle="--")
+        ax.axhline(59, color="gray", linestyle="dotted", alpha=0.5, lw=1)
+        ax.axhline(151, color="gray", linestyle="dotted", alpha=0.5, lw=1)
+        ax.axhline(243, color="gray", linestyle="dotted", alpha=0.5, lw=1)
+        ax.axhline(334, color="gray", linestyle="dotted", alpha=0.5, lw=1)

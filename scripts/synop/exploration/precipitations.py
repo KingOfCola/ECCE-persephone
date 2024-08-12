@@ -13,6 +13,8 @@ import numpy as np
 import os
 import re
 from tqdm import tqdm
+from scipy.signal import find_peaks
+from itertools import pairwise
 
 import seaborn as sns
 from matplotlib import pyplot as plt
@@ -24,14 +26,20 @@ from core.optimization.piecewise import (
     piecewise_linear_breakpoints,
 )
 from plots.mapplot import plot_map, set_lims
+from plots.annual import month_xaxis, MONTHS_STARTS, MONTHS_LABELS_3, MONTHS_CENTER
 from utils.paths import data_dir, output
 from utils.strings import capitalize
 
 
 if __name__ == "__main__":
-    plt.rcParams.update({"text.usetex": True})  # Use LaTeX rendering
-    plt.rcParams.update({"font.family": "serif"})
-    plt.rcParams.update({"font.size": "12"})
+    plt.rcParams.update(
+        {
+            "text.usetex": True,  # Use LaTeX rendering
+            "text.latex.preamble": r"\usepackage{amsfonts}",
+            "font.family": "serif",
+            "font.size": "12",
+        }
+    )
 
     # ================================================================================================
     # Data loading
@@ -40,6 +48,12 @@ if __name__ == "__main__":
     precip_all = pd.read_parquet(
         data_dir(rf"Meteo-France_SYNOP/Preprocessed/{METRIC}.parquet")
     ).reset_index()
+    precip_all["date"] = precip_all.apply(
+        lambda x: pd.to_datetime(
+            f"{x['year']:.0f}-{x['day_of_year']:.0f}", format="%Y-%j"
+        ),
+        axis=1,
+    )
 
     RAW_DIR = data_dir("Meteo-France_SYNOP/Raw")
     OUT_DIR = output("Meteo-France_SYNOP/Description")
@@ -61,6 +75,7 @@ if __name__ == "__main__":
     Z_ALPHA = 1.96
 
     MIN_PRECIPITATION = 0.3
+    WINDOW_SIZE = 3
     STATIONS_OF_INTEREST = [7072, 7110, 7690, 7149, 7535, 7190]
     STATION = STATIONS_OF_INTEREST[0]
 
@@ -161,7 +176,18 @@ if __name__ == "__main__":
             STATIONS.loc[STATIONS["ID"] == station, "Nom"].values[0], sep="-"
         )
 
-        data = np.sort(precip_all[station].values)
+        precip_station = precip_all[station].values
+        peaks = find_peaks(
+            precip_station, height=MIN_PRECIPITATION, distance=WINDOW_SIZE
+        )[0]
+        importance = np.argsort(precip_station[peaks])
+        data = precip_station[peaks][importance]
+        dates = precip_all["date"].values[peaks][importance]
+        doy = precip_all["day_of_year"].values[peaks][importance]
+
+        print(f"\nStation: {station_name}")  # Print the station name
+        for i in range(1, 6):
+            print(f"{data[-i]:.1f} : {dates[-i]}")
 
         n = len(data)
         excess_expected = np.zeros(n)
@@ -176,12 +202,17 @@ if __name__ == "__main__":
                 excess_std[i] = np.std(data[i + 1 :]) / np.sqrt(n - i - 1)
 
         U_MIN = 5
+        skip_last = 3
+
         # Do a polyfit on the expected excess to get the slope
-        excess_expected_trunc = excess_expected[data >= U_MIN][:-1]
-        data_trunc = data[data >= U_MIN][:-1]
+        excess_expected_trunc = excess_expected[data >= U_MIN][:-skip_last]
+        excess_std_trunc = excess_std[data >= U_MIN][:-skip_last]
+        data_trunc = data[data >= U_MIN][:-skip_last]
 
         popt = fit_piecewise_linear(data_trunc, excess_expected_trunc, 2)
-        popt, aics = fit_piecewise_linear_AIC(data_trunc, excess_expected_trunc)
+        popt, summary = fit_piecewise_linear_AIC(
+            data_trunc, excess_expected_trunc, sigma=excess_std_trunc
+        )
         us, exexs = piecewise_linear_breakpoints(
             popt, data_trunc.min(), data_trunc.max()
         )
@@ -189,14 +220,20 @@ if __name__ == "__main__":
         # ksi_1 = 1 - 1 / (1 + slope)
 
         fig, ax = plt.subplots(figsize=(6, 6))
-        ax.plot(data, excess_expected, "o", markersize=2)
+        ax.plot(
+            data, excess_expected, "o", markersize=2, label=r"$\mathbb{E}[X-u|X>u]$"
+        )
         ax.fill_between(
             data,
             excess_expected - Z_ALPHA * excess_std,
             excess_expected + Z_ALPHA * excess_std,
             alpha=0.3,
+            label=r"$\pm 1.96\hat{\sigma}$",
         )
-        ax.plot(us, exexs, c="r", ls="--")  # Add the slope
+        ax.plot(
+            us, exexs, c="r", ls="--", label="Piecewise linear fit"
+        )  # Add the slope
+
         for i in range(len(us) - 1):
             u_start = us[i]
             u_end = us[i + 1]
@@ -219,9 +256,42 @@ if __name__ == "__main__":
 
         ax.axvline(u_end, c="r", ls=":", lw=0.5)
         ax.set_ylim(0, None)
-        ax.set_xlim(0, data_trunc.max())
+        ax.set_xlim(0, data.max())
         ax.set_xlabel("Threshold $u$", fontsize=12)
         ax.set_ylabel("Expected excess", fontsize=12)
         ax.legend()
         fig.suptitle(f"Station {station_name} ({station})")
+        plt.show()
+
+        quantiles = [0.25, 0.5, 0.75, 1]
+        month_quantiles = np.zeros((12, len(quantiles)))
+
+        for i in range(12):
+            where = (doy >= MONTHS_STARTS[i]) & (doy < MONTHS_STARTS[i + 1])
+            month_quantiles[i, :] = np.quantile(data[where], quantiles)
+
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.plot(
+            MONTHS_CENTER, month_quantiles[:, 1], c="k", label="Median", lw=2, zorder=2
+        )
+        ax.fill_between(
+            MONTHS_CENTER,
+            month_quantiles[:, 0],
+            month_quantiles[:, 2],
+            alpha=0.3,
+            label="IQR",
+            zorder=1,
+        )
+        ax.plot(
+            MONTHS_CENTER,
+            month_quantiles[:, 3],
+            "+k",
+            markersize=5,
+            label="Max",
+            zorder=2,
+        )
+        ax.set_yscale("log")
+        ax.grid(axis="y", which="major", ls=":", alpha=0.5, c="gray", lw=1)
+        ax.grid(axis="y", which="minor", ls=":", alpha=0.3)
+        month_xaxis(ax)
         plt.show()

@@ -55,7 +55,7 @@ def piecewise_linear(x, x0, y0, slope_start, slope_end, *bps):
     )
 
 
-def fit_piecewise_linear(x, y, n_breakpoints):
+def fit_piecewise_linear_breakpoints(x, y, n_breakpoints, sigma=None):
     x0 = x[np.arange(1, n_breakpoints + 1) * len(x) // (n_breakpoints + 1)]
     y0 = y[np.arange(1, n_breakpoints + 1) * len(x) // (n_breakpoints + 1)]
 
@@ -63,8 +63,8 @@ def fit_piecewise_linear(x, y, n_breakpoints):
     for xx, yy in zip(x0[1:], y0[1:]):
         p0.extend([xx, yy])
 
-    popt, _ = curve_fit(piecewise_linear, x, y, p0=p0)
-    return popt
+    popt, _ = curve_fit(piecewise_linear, x, y, p0=p0, sigma=sigma)
+    return popt, {"n_breakpoints": n_breakpoints}
 
 
 def piecewise_linear_breakpoints(params, xmin=None, xmax=None):
@@ -76,13 +76,22 @@ def piecewise_linear_breakpoints(params, xmin=None, xmax=None):
     return x, piecewise_linear(x, *params)
 
 
-def aic(y, y_pred, n_params):
-    residuals = y - y_pred
-    sse = np.sum(residuals**2)
-    return len(y) * np.log(sse / len(y)) + n_params
+def aic_regression(y, y_pred, n_params, sigma=None):
+    if sigma is not None:
+        if np.isscalar(sigma):
+            sigma = np.full_like(y, sigma)
+
+        residuals = (y - y_pred) / sigma
+        llhood = (
+            -np.sum(residuals**2) - np.sum(np.log(sigma)) - np.log(2 * np.pi) * len(y)
+        )
+    else:
+        llhood = -np.sum((y - y_pred) ** 2)
+
+    return 2 * n_params - 2 * llhood
 
 
-def fit_piecewise_linear_AIC(x, y):
+def fit_piecewise_linear_AIC(x, y, sigma=None):
     """Fit a piecewise linear function to the data using AIC to determine the number of breakpoints.
 
     Parameters
@@ -108,13 +117,11 @@ def fit_piecewise_linear_AIC(x, y):
 
     while True:
         k += 1  # Add another breakpoint
-        popt = fit_piecewise_linear(x, y, k)
+        popt, _ = fit_piecewise_linear_breakpoints(x, y, n_breakpoints=k, sigma=sigma)
 
         # Compute the AIC of the fit
         y_pred = piecewise_linear(x, *popt)
-        residuals = y - y_pred
-        sse = np.sum(residuals**2)
-        aic = len(x) * np.log(sse / len(x)) + 2 * k
+        aic = aic_regression(y, y_pred, len(popt), sigma=1)
 
         # Store the results
         popts.append(popt)
@@ -122,29 +129,54 @@ def fit_piecewise_linear_AIC(x, y):
 
         # If the AIC is increasing, return the previous result
         if aic > last_aic:
-            return popts[-2], aics
+            return popts[-2], {"aics": aics, "n_breakpoints": k - 1, "popts": popts}
 
         last_aic = aic
+
+
+def fit_piecewise_linear(x, y, sigma=None, n_breakpoints=None):
+    if n_breakpoints is None:
+        return fit_piecewise_linear_AIC(x, y, sigma=sigma)
+    else:
+        return fit_piecewise_linear_breakpoints(x, y, n_breakpoints, sigma=sigma)
 
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
+    def relu(x):
+        return np.maximum(0, x)
+
     x = np.linspace(-10, 10, 101)
     y = np.log(1 + np.exp(x))
-    popts, AICs = fit_piecewise_linear_AIC(x, y)
+    sigma = np.logspace(-1, 0, len(x))
+    y = (
+        -relu(x + 5)
+        + 2 * relu(x)
+        - 1.5 * relu(x - 3)
+        + np.random.normal(0, 1, len(x)) * sigma
+    )
+
+    popt, summary = fit_piecewise_linear_AIC(x, y, sigma=sigma)
+    aics = summary["aics"]
+    popts = summary["popts"]
+
+    popt_single, _ = fit_piecewise_linear_breakpoints(x, y, n_breakpoints=3)
 
     fig, axes = plt.subplots(2)
     axes[0].plot(x, y, label="Sigmoid", color="black", lw=2)
 
-    for k, popt in enumerate(popts):
+    for k, popt in enumerate(popts[:-1]):
         x_bp, y_bp = piecewise_linear_breakpoints(popt, xmin=-10, xmax=10)
-        axes[0].plot(x_bp, y_bp, label=f"Piecewise linear {k}")
+        axes[0].plot(x_bp, y_bp, label=f"Piecewise linear {k+1}")
+
+    x_bp, y_bp = piecewise_linear_breakpoints(popt_single, xmin=-10, xmax=10)
+    axes[0].plot(x_bp, y_bp, label=f"Piecewise linear no sigma", color="red")
 
     axes[0].set_xlabel("x")
     axes[0].set_ylabel("y")
     axes[0].legend()
 
-    axes[1].plot(range(1, len(AICs) + 1), AICs, "o")
+    axes[1].plot(range(1, len(aics) + 1), aics, "o")
     axes[1].set_xlabel("Number of breakpoints")
     axes[1].set_ylabel("AIC")
