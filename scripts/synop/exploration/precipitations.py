@@ -25,6 +25,8 @@ from core.optimization.piecewise import (
     fit_piecewise_linear_AIC,
     piecewise_linear_breakpoints,
 )
+from core.optimization.harmonics import reconstruct_harmonics
+from core.distributions.sged import maximize_llhood_sged_harmonics, sged_cdf
 from plots.mapplot import plot_map, set_lims
 from plots.annual import month_xaxis, MONTHS_STARTS, MONTHS_LABELS_3, MONTHS_CENTER
 from utils.paths import data_dir, output
@@ -170,24 +172,10 @@ if __name__ == "__main__":
     fig.savefig(os.path.join(OUT_DIR, f"precipitation_distribution_stations.png"))
     plt.show()
 
-    # ME-plot
-    for station in STATIONS_OF_INTEREST:
-        station_name = capitalize(
-            STATIONS.loc[STATIONS["ID"] == station, "Nom"].values[0], sep="-"
-        )
-
-        precip_station = precip_all[station].values
-        peaks = find_peaks(
-            precip_station, height=MIN_PRECIPITATION, distance=WINDOW_SIZE
-        )[0]
-        importance = np.argsort(precip_station[peaks])
-        data = precip_station[peaks][importance]
-        dates = precip_all["date"].values[peaks][importance]
-        doy = precip_all["day_of_year"].values[peaks][importance]
-
-        print(f"\nStation: {station_name}")  # Print the station name
-        for i in range(1, 6):
-            print(f"{data[-i]:.1f} : {dates[-i]}")
+    def mean_excess(values, min_value: float = -np.inf, window_size: int = WINDOW_SIZE):
+        peaks = find_peaks(values, height=min_value, distance=WINDOW_SIZE)[0]
+        importance = np.argsort(values[peaks])
+        data = values[peaks][importance]
 
         n = len(data)
         excess_expected = np.zeros(n)
@@ -201,13 +189,69 @@ if __name__ == "__main__":
                 excess_expected[i] = np.mean(data[i + 1 :]) - u
                 excess_std[i] = np.std(data[i + 1 :]) / np.sqrt(n - i - 1)
 
+        return data, excess_expected, excess_std, peaks[importance]
+
+    def truncate(
+        values, *others, lims: tuple = (-np.inf, np.inf), skip: tuple = (0, 0)
+    ):
+        where = (values >= lims[0]) & (values < lims[1])
+        n = np.sum(where)
+        return (value[where][skip[0] : n - skip[1]] for value in (values, *others))
+
+    def plot_ksi_breakpoints(
+        thresholds, expected_excesses, ax, bp_lines=True, ksi_labels=True
+    ):
+        ax.plot(
+            thresholds, expected_excesses, c="r", ls="--", label="Piecewise linear fit"
+        )  # Add the slope
+
+        if bp_lines:
+            for i in range(len(thresholds) - 1):
+                u_start = thresholds[i]
+                u_end = thresholds[i + 1]
+                exex_start = expected_excesses[i]
+                exex_end = expected_excesses[i + 1]
+                u_mean = (u_start + u_end) / 2
+                slope = (exex_end - exex_start) / (u_end - u_start)
+                ksi_1 = 1 - 1 / (1 + slope)
+
+                ax.axvline(u_start, c="r", ls=":", lw=0.5)
+                if ksi_labels:
+                    ax.text(
+                        u_mean,
+                        0,
+                        rf"$\xi={ksi_1:.2f}$",
+                        fontsize=8,
+                        c="r",
+                        ha="center",
+                        va="bottom",
+                    )
+
+    # ME-plot
+    for station in STATIONS_OF_INTEREST:
+        station_name = capitalize(
+            STATIONS.loc[STATIONS["ID"] == station, "Nom"].values[0], sep="-"
+        )
+
+        data, excess_expected, excess_std, peaks = mean_excess(precip_all[station])
+        dates = precip_all["date"].values[peaks]
+        doy = precip_all["day_of_year"].values[peaks]
+
+        print(f"\nStation: {station_name}")  # Print the station name
+        for i in range(1, 6):
+            print(f"{data[-i]:.1f} : {dates[-i]}")
+
         U_MIN = 5
         skip_last = 3
 
         # Do a polyfit on the expected excess to get the slope
-        excess_expected_trunc = excess_expected[data >= U_MIN][:-skip_last]
-        excess_std_trunc = excess_std[data >= U_MIN][:-skip_last]
-        data_trunc = data[data >= U_MIN][:-skip_last]
+        data_trunc, excess_expected_trunc, excess_std_trunc = truncate(
+            data,
+            excess_expected,
+            excess_std,
+            lims=(U_MIN, np.inf),
+            skip=(0, skip_last),
+        )
 
         popt = fit_piecewise_linear(data_trunc, excess_expected_trunc, 2)
         popt, summary = fit_piecewise_linear_AIC(
@@ -230,29 +274,7 @@ if __name__ == "__main__":
             alpha=0.3,
             label=r"$\pm 1.96\hat{\sigma}$",
         )
-        ax.plot(
-            us, exexs, c="r", ls="--", label="Piecewise linear fit"
-        )  # Add the slope
-
-        for i in range(len(us) - 1):
-            u_start = us[i]
-            u_end = us[i + 1]
-            exex_start = exexs[i]
-            exex_end = exexs[i + 1]
-            u_mean = (u_start + u_end) / 2
-            slope = (exex_end - exex_start) / (u_end - u_start)
-            ksi_1 = 1 - 1 / (1 + slope)
-
-            ax.axvline(u_start, c="r", ls=":", lw=0.5)
-            ax.text(
-                u_mean,
-                0,
-                rf"$\xi={ksi_1:.2f}$",
-                fontsize=8,
-                c="r",
-                ha="center",
-                va="bottom",
-            )
+        plot_ksi_breakpoints(us, exexs, ax)
 
         ax.axvline(u_end, c="r", ls=":", lw=0.5)
         ax.set_ylim(0, None)
@@ -295,3 +317,102 @@ if __name__ == "__main__":
         ax.grid(axis="y", which="minor", ls=":", alpha=0.3)
         month_xaxis(ax)
         plt.show()
+
+    max_threshold = 0
+    max_expected_excess = 0
+
+    ROWS, COLS = 3, 4
+    fig, axes = plt.subplots(ROWS, COLS, figsize=(16, 9), sharex=True, sharey=True)
+
+    for month_idx in range(12):
+        month_start = MONTHS_STARTS[month_idx]
+        month_end = MONTHS_STARTS[month_idx + 1]
+        month_name = MONTHS_LABELS_3[month_idx]
+
+        precip_month = precip_all.loc[
+            (precip_all["day_of_year"] >= month_start)
+            & (precip_all["day_of_year"] < month_end),
+            station,
+        ].values
+        data_month, excess_month, excess_std_month, peaks_month = mean_excess(
+            precip_month, min_value=MIN_PRECIPITATION
+        )
+        data_month_trunc, excess_month_trunc, excess_std_month_trunc = truncate(
+            data_month,
+            excess_month,
+            excess_std_month,
+            lims=(U_MIN, np.inf),
+            skip=(0, 3),
+        )
+
+        popt_month, summary = fit_piecewise_linear(
+            data_month_trunc, excess_month_trunc, sigma=excess_std_month_trunc
+        )
+        us_month, exexs_month = piecewise_linear_breakpoints(
+            popt_month, data_month_trunc.min(), data_month_trunc.max()
+        )
+
+        ax = axes[month_idx // COLS, month_idx % COLS]
+        ax.plot(
+            data_month, excess_month, "o", markersize=2, label=r"$\mathbb{E}[X-u|X>u]$"
+        )
+        ax.fill_between(
+            data_month,
+            excess_month - Z_ALPHA * excess_std_month,
+            excess_month + Z_ALPHA * excess_std_month,
+            alpha=0.3,
+            label=r"$\pm 1.96\hat{\sigma}$",
+        )
+        plot_ksi_breakpoints(us_month, exexs_month, ax)
+        ax.set_title(month_name)
+        max_threshold = max(max_threshold, data_month_trunc.max())
+        max_expected_excess = max(max_expected_excess, excess_month_trunc.max())
+
+    ax.set_xlim(0, max_threshold)
+    ax.set_ylim(0, max_expected_excess * 1.1)
+
+    # ===============================================================================================
+    # SGED model log precipitations
+    # ===============================================================================================
+    n_harm = 2
+
+    precip_station = precip_all.loc[:, station].values
+    days_of_year = precip_all["day_of_year"].values
+    data_station, excess_station, excess_std_station, peaks_station = mean_excess(
+        precip_station, min_value=MIN_PRECIPITATION
+    )
+    log_precip_station = np.log(data_station)
+    days_of_year_station = days_of_year[peaks_station]
+
+    sged_fit = maximize_llhood_sged_harmonics(
+        days_of_year_station / DAYS_IN_YEAR, x=log_precip_station, n_harmonics=n_harm
+    )
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    sns.histplot(log_precip_station, ax=ax, kde=True, stat="density")
+    plt.show()
+
+    popt = sged_fit["x"]
+    doy = np.arange(365)
+
+    fig, axes = plt.subplots(4, figsize=(6, 6), sharex=True)
+    for i, param in enumerate([r"\mu", r"\sigma", r"\lambda", "p"]):
+        ax = axes[i]
+        n_params_coeff = n_harm * 2 + 1
+        params_harmonics = np.zeros(n_harm + 1, dtype="complex")
+        params_harmonics[0] = popt[i * n_params_coeff]
+
+        for j in range(n_harm):
+            params_harmonics[j + 1] += popt[i * n_params_coeff + 2 * j + 1]
+            params_harmonics[j + 1] += popt[i * n_params_coeff + 2 * j + 2] * 1j
+
+        reconstructed_param = reconstruct_harmonics(
+            params_harmonics, doy / DAYS_IN_YEAR
+        )
+        ax.plot(doy, reconstructed_param)
+        ax.set_ylabel(f"${param}$")
+        ax.grid(ls=":", alpha=0.5)
+        month_xaxis(ax)
+    axes[-1].set_xlabel("Day of year")
+    axes[-1].set_xlim(0, 365)
+    plt.show()
