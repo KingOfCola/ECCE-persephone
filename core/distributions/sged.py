@@ -16,6 +16,9 @@ from scipy.optimize import minimize
 
 from core.optimization.harmonics import harmonics_parameter_valuation
 
+__TOLERANCE = 1e-9
+__FLOAT_PRECISION = 1e-15
+
 
 def sged_pseudo_params(mu, sigma, lamb, p):
     """
@@ -112,10 +115,15 @@ def sged_cdf(x, mu, sigma, lamb, p):
     float
         Value of the CDF at x.
     """
-    if np.abs(x - mu) / sigma <= 2:
-        return __sged_cdf_series(x, mu, sigma, lamb, p)
+    v, m, g1p = sged_pseudo_params(mu, sigma, lamb, p)
+    sigma_ = v * sigma * (1 + lamb * np.sign(x - mu + m))
+    x_ = np.abs(x - mu + m) / sigma_
+    x_lim = np.log(__TOLERANCE / __FLOAT_PRECISION) ** (1 / p)
+
+    if x_ <= x_lim:
+        return __sged_cdf_series(x, mu, sigma, lamb, p, v, m, g1p, tol=__TOLERANCE)
     else:
-        return __sged_cdf_series_large(x, mu, sigma, lamb, p)
+        return __sged_cdf_series_large(x, mu, sigma, lamb, p, v, m, g1p)
 
 
 def sged_cdf_int(x, mu, sigma, lamb, p):
@@ -144,7 +152,7 @@ def sged_cdf_int(x, mu, sigma, lamb, p):
 
 
 @np.vectorize
-def __sged_cdf_series(x, mu, sigma, lamb, p, tol=1e-15):
+def __sged_cdf_series(x, mu, sigma, lamb, p, v, m, g1p, tol=1e-15):
     """
     Cumulative distribution function of the SGED distribution.
     This method uses the Taylor series expansion of the CDF.
@@ -167,9 +175,6 @@ def __sged_cdf_series(x, mu, sigma, lamb, p, tol=1e-15):
     array of floats
         Values of the CDF at x.
     """
-    # Computes the auxilary parameters
-    v, m, g1p = sged_pseudo_params(mu, sigma, lamb, p)
-
     # Center the data
     x_centered = x - mu + m
     x_sgn = np.sign(x_centered)
@@ -186,26 +191,25 @@ def __sged_cdf_series(x, mu, sigma, lamb, p, tol=1e-15):
     F0 = (1 - lamb) / 2  # Initial value of the CDF at the mode x=mu+m
 
     k = 0.0
-    k_fact = 1.0
-    sgn = 1.0
-    xkp = 1.0
     ele = 1.0
+    prod = 1.0
     series = 0.0
 
     # Compute the series expansion until the additional term is smaller than the tolerance
-    while np.abs(ele) > tol:
-        ele = sgn * xkp / (k_fact * (k * p + 1))
+    while np.abs(ele) > tol and k < 100:
+        ele = prod / (k * p + 1)
         series += ele
         k += 1
-        k_fact *= k
-        sgn *= -1
-        xkp *= xp
+
+        prod /= k  # k!
+        prod *= -1  # (-1)^k
+        prod *= xp  # x^p^k
 
     return F0 + alpha * x_centered * series
 
 
 @np.vectorize
-def __sged_cdf_series_large(x, mu, sigma, lamb, p):
+def __sged_cdf_series_large(x, mu, sigma, lamb, p, v, m, g1p):
     """
     Cumulative distribution function of the SGED distribution.
     This method uses integration by parts and discards the residuals after
@@ -224,15 +228,18 @@ def __sged_cdf_series_large(x, mu, sigma, lamb, p):
         Asymmetry parameter.
     p : array of floats
         Shape parameter.
+    v : array of floats
+        Pseudo parameter `v`.
+    m : array of floats
+        Pseudo parameter `m`.
+    g1p : array of floats
+        Gamma(1/p).
 
     Returns
     -------
     array of floats
         Values of the CDF at x.
     """
-    # Computes the auxilary parameters
-    v, m, g1p = sged_pseudo_params(mu, sigma, lamb, p)
-
     # Center the data and use the pseudo-symmetry of the distribution (upper-tail)
     x_centered = x - mu + m
     x_sgn = np.sign(x_centered)
@@ -354,143 +361,3 @@ def maximize_llhood_sged_harmonics(t: np.ndarray, x: np.ndarray, n_harmonics: in
     # Mimimize the negative loglikelihood
     popt = minimize(fun=neg_llhood, x0=p0, args=(t, x, n_harmonics), bounds=bounds)
     return popt
-
-
-if __name__ == "__main__":
-    from time import time
-    from matplotlib import pyplot as plt
-
-    x = 11
-    mu, sigma, lamb, p = (3, 2, 0, 4)
-    tol = 1e-5
-
-    v, m, g1p = sged_pseudo_params(mu, sigma, lamb, p)
-
-    x_centered = x - mu + m
-    x_sgn = np.sign(x_centered)
-    x_abs = np.abs(x_centered)
-
-    alpha = p / (2 * v * sigma * g1p)
-    sigma_ = v * sigma * (1 + lamb * x_sgn)
-    x_norm = x_abs / sigma_
-
-    xp = x_norm**p
-    F0 = (1 + lamb) / 2
-
-    k = 0
-    k_fact = 1
-    sgn = 1
-    sigma_kp = 1
-    xkp = 1
-    ele = 1
-    series = 0
-
-    print("Computing the series expansion of the CDF")
-    print(f"sigma_ = {sigma_}")
-    print(f"xp = {xp}")
-
-    while np.abs(ele) > tol:
-        ele = sgn * xkp / (k_fact * sigma_kp * (k * p + 1))
-        series += ele
-        k += 1
-        k_fact *= k
-        sgn *= -1
-        xkp *= xp
-
-        print()
-        print(f"k = {k}")
-        print(f"k_fact = {k_fact}")
-        print(f"sgn = {sgn}")
-        print(f"xkp = {xkp}")
-        print(f"ele = {ele}")
-
-    F = F0 + alpha / x_centered * series
-
-    # ================================================================================================
-    # Large method
-    # ================================================================================================
-    x = -5
-    v, m, g1p = sged_pseudo_params(mu, sigma, lamb, p)
-
-    x_centered = x - mu + m
-    x_sgn = np.sign(x_centered)
-    x_abs = np.abs(x_centered)
-
-    alpha = p / (2 * v * sigma * g1p)
-    sigma_ = v * sigma * (1 + lamb * x_sgn)
-    x_norm = x_abs / sigma_
-
-    xp = x_norm**p
-    print(f"xp = {xp}")
-
-    ki = 1.0
-    xkp = 1.0
-    i = 0.0
-    ele = 1.0
-    series = 0.0
-
-    while np.abs(ele) > tol and ((p * (i + 1) - 1)) * p <= xp:
-        print()
-        print(f"i = {i}")
-        print(f"ki = {ki}")
-        print(f"xkp = {xkp}")
-        print(f"ele = {ele}")
-
-        ele = ki / xkp
-        xkp *= xp
-        ki *= -((p * (i + 1) - 1)) * p
-        i += 1
-
-        series += ele
-
-    print()
-    print(f"i = {i}")
-    print(f"ki = {ki}")
-    print(f"xkp = {xkp}")
-    print(f"ele = {ele}")
-
-    series *= np.exp(-xp) * alpha * x_norm
-
-    # ================================================================================================
-    # Test the different methods
-    # ================================================================================================
-
-    x = np.linspace(-10, 10, 1001)
-    mu, sigma, lamb, p = (2, 1, 0.3, 1.5)
-    # x = x[np.abs(x - mu) > 2]
-
-    start = time()
-    cdf_int = np.array([sged_cdf_int(t, mu, sigma, lamb, p) for t in x])
-    end_int = time()
-    cdf_comb = sged_cdf(x, mu, sigma, lamb, p)
-    end_comb = time()
-    cdf_series = __sged_cdf_series(x, mu, sigma, lamb, p)
-    end_series = time()
-    cdf_large = __sged_cdf_series_large(x, mu, sigma, lamb, p)
-    end_large = time()
-
-    print(f"Integration method: {end_int - start:.3f}s")
-    print(f"Combined method: {end_comb - end_int:.3f}s")
-    print(f"Series method: {end_series - end_comb:.3f}s")
-    print(f"Large method: {end_large - end_series:.3f}s")
-
-    plt.plot(cdf_int, cdf_comb)
-    plt.xscale("log")
-    plt.yscale("log")
-    plt.show()
-    plt.plot(x, cdf_int)
-    plt.plot(x, cdf_comb)
-    plt.plot(x, cdf_series)
-    plt.plot(x, cdf_large)
-    plt.yscale("log")
-    plt.show()
-
-    plt.plot(x, cdf_series / cdf_int)
-    plt.plot(x, cdf_large / cdf_int)
-    plt.plot(x, cdf_comb / cdf_int, c="k", lw=2)
-    plt.yscale("log")
-    plt.ylim(1e-1, 1e1)
-    plt.axvline(mu, color="r")
-    for i in range(-3, 4):
-        plt.axvline(mu + i * sigma, color="r", linestyle="--")
-    plt.show()
