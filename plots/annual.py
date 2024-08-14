@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 
+MONTHS_DURATIONS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 MONTHS_STARTS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365]
 MONTHS_CENTER = [15, 45, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349]
 MONTHS_LABELS_F = [
@@ -24,6 +26,36 @@ MONTHS_LABELS = {
     "three": MONTHS_LABELS_3,
     "one": MONTHS_LABELS_1,
 }
+
+SEASONS_FULL = ["Winter", "Spring", "Summer", "Autumn"]  # DJL, MAM, JJA, SON
+SEASONS_3 = ["DJL", "MAM", "JJA", "SON"]
+MONTHS_TO_SEASON = [0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 0]
+
+SEASONS_COLORS = [
+    "#70d6ff",
+    "#90a955",
+    "#ffd670",
+    "#ff9770",
+]  # Winter, Spring, Summer, Autumn
+MONTHS_COLORS = [
+    "#49cbfe",  # January
+    "#23c0ff",  # February
+    "#90a955",  # March
+    "#7a8f48",  # April
+    "#64763b",  # May
+    "#ffd670",  # June
+    "#fecb49",  # July
+    "#ffc023",  # August
+    "#ff9770",  # September
+    "#fe7b49",  # October
+    "#ff5f23",  # November
+    "#70d5ff",  # December
+]
+
+MONTHS_CMAP = ListedColormap(MONTHS_COLORS)
+DOY_CMAP = ListedColormap(
+    [c for c, days in zip(MONTHS_COLORS, MONTHS_DURATIONS) for _ in range(days)]
+)
 
 
 def month_xaxis(ax: plt.Axes, grid: bool | str = "season", labels: str = "three"):
