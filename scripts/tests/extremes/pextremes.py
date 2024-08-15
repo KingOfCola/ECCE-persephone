@@ -20,7 +20,7 @@ from core.mathematics.correlations import autocorrelation
 from core.optimization.harmonics import extract_harmonics, reconstruct_harmonics
 from plots.annual import month_xaxis
 
-from scripts.tests.exgpd import LV
+from scripts.tests.extremes.exgpd import LV
 
 from utils.paths import data_dir, output
 
