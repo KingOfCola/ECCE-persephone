@@ -179,6 +179,21 @@ class HarmonicBernoulli(HarmonicDistribution):
         self.mu = summary.x
         self.fit_summary = summary
 
+    def param_valuation(self, t: float) -> list:
+        """Compute the actual value of the parameters for each timepoint.
+
+        Parameters
+        ----------
+        t : float-like
+            Timepoint at which the parameters should be evaluated.
+
+        Returns
+        -------
+        mu : array-like
+            Actual values of the parameter p of the Bernoulli distribution for each timepoint.
+        """
+        return harmonics_valuation(params=self.mu, t=t, period=self.period)
+
     @staticmethod
     def _fit_harmonics(
         t: float, x: float, n_harmonics: int, kernel_func: callable

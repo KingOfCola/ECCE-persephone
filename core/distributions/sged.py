@@ -10,354 +10,348 @@
 
 
 import numpy as np
-from scipy import special
-from scipy.integrate import quad
 from scipy.optimize import minimize
 
-from core.optimization.harmonics import harmonics_parameter_valuation
-
-__TOLERANCE = 1e-9
-__FLOAT_PRECISION = 1e-15
-
-
-def sged_pseudo_params(mu, sigma, lamb, p):
-    """
-    Computes the pseudo parameters of the SGED distribution.
-
-    Parameters
-    ----------
-    mu : float
-        Location parameter.
-    sigma : float
-        Scale parameter.
-    lamb : float
-        Asymmetry parameter.
-    p : float
-        Shape parameter.
-
-    Returns
-    -------
-    float
-        Pseudo parameter `v`.
-    float
-        Pseudo parameter `m`.
-    """
-    g1p = special.gamma(1 / p)
-    g3p = special.gamma(3 / p)
-    gh1p = special.gamma(1 / p + 0.5)
-
-    v = np.sqrt(
-        np.pi
-        * g1p
-        / (np.pi * (1 + 3 * lamb**2) * g3p - 16 ** (1 / p) * lamb**2 * gh1p**2 * g1p)
-    )
-    m = lamb * v * sigma * 2 ** (2 / p) * gh1p / np.sqrt(np.pi)
-
-    return v, m, g1p
+from core.distributions.dist import HarmonicDistribution, DiscreteDistributionError
+from core.mathematics.harmonics import harmonics_valuation
+from core.mathematics.functions import sged, sged_cdf, sged_ppf_pwl_approximation
 
 
-def sged(x, mu, sigma, lamb, p):
-    """
-    Probability density function of the SGED distribution.
+class HarmonicSGED(HarmonicDistribution):
+    PARAMETER_TOL = 1e-6
 
-    Parameters
-    ----------
-    x : float or array of floats
-        Value at which to evaluate the PDF.
-    mu : float
-        Location parameter.
-    sigma : float
-        Scale parameter.
-    lamb : float
-        Asymmetry parameter.
-    p : float
-        Shape parameter.
+    def __init__(
+        self,
+        mu: float | None = None,
+        sigma: float | None = None,
+        lamb: float | None = None,
+        p: float | None = None,
+        n_harmonics: int | None = None,
+        period: float = 1.0,
+        n_pwl: int = 1001,
+    ):
+        """SGED harmonic distribution.
 
-    Returns
-    -------
-    float or array of floats
-        Value of the PDF at x.
-    """
-    v, m, g1p = sged_pseudo_params(mu, sigma, lamb, p)
+        Parameters
+        ----------
+        mu : float array, optional
+            Location parameter, by default None. It should be a float array of shape (2*n_harm + 1,).
+            Can't be specified if n_harmonics is provided.
+        sigma : float array, optional
+            Scale parameter, by default None. It should be a float array of shape (2*n_harm + 1,).
+            Can't be specified if n_harmonics is provided.
+        lamb : float array, optional
+            Asymmetry parameter, by default None. It should be a float array of shape (2*n_harm + 1,).
+            Can't be specified if n_harmonics is provided.
+        p : float array, optional
+            Shape parameter, by default None. It should be a float array of shape (2*n_harm + 1,).
+            Can't be specified if n_harmonics is provided.
+        n_harmonics : int, optional
+            Number of harmonics to consider, by default None. Can't be specified if mu is provided.
+        period : float, optional
+            Period of the harmonics, by default 1.0.
+        n_pwl : int, optional
+            Number of points to consider in the cdf piecewise linear approximation, by default 1001
+        """
+        super().__init__(period)
+        self._mu = None
+        self._sigma = None
+        self._lamb = None
+        self._p = None
 
-    return (
-        p
-        / (2 * v * sigma * g1p)
-        * np.exp(
-            -(
-                (np.abs(x - mu + m) / (v * sigma * (1 + lamb * np.sign(x - mu + m))))
-                ** p
+        self.mu = mu
+        self.sigma = sigma
+        self.lamb = lamb
+        self.p = p
+        self.n_harmonics = n_harmonics
+        self.n_pwl = n_pwl
+
+        self.fit_summary = None
+
+    @property
+    def mu(self):
+        return self._mu
+
+    @mu.setter
+    def mu(self, mu: float | None):
+        self._mu = mu
+
+    @property
+    def sigma(self):
+        return self._sigma
+
+    @sigma.setter
+    def sigma(self, sigma: float | None):
+        self._sigma = sigma
+
+    @property
+    def lamb(self):
+        return self._lamb
+
+    @lamb.setter
+    def lamb(self, lamb: float | None):
+        self._lamb = lamb
+
+    @property
+    def p(self):
+        return self._p
+
+    @p.setter
+    def p(self, p: float | None):
+        self._p = p
+
+    def cdf(self, t: float, x: float) -> float:
+        """Cumulative distribution function.
+
+        Parameters
+        ----------
+        t : float-like
+            Timepoint at which the CDF is evaluated.
+        x : float-like
+            The value at which the CDF is evaluated.
+
+        Returns
+        -------
+        float-like
+            The value of the CDF at x.
+        """
+        if not self._isfit():
+            raise DiscreteDistributionError("The distribution is not fitted.")
+
+        # Evaluate the parameters at the timepoints
+        mu, sigma, lamb, p = self.param_valuation(t)
+
+        return sged_cdf(x, mu=mu, sigma=sigma, lamb=lamb, p=p)
+
+    def pdf(self, t: float, x: float) -> float:
+        """Probability density function.
+
+        Parameters
+        ----------
+        t : float-like
+            Timepoint at which the PDF is evaluated.
+        x : float-like
+            The value at which the PDF is evaluated.
+
+        Returns
+        -------
+        float-like
+            The value of the PDF at x.
+        """
+        if not self._isfit():
+            raise DiscreteDistributionError("The distribution is not fitted.")
+
+        # Evaluate the parameters at the timepoints
+        mu, sigma, lamb, p = self.param_valuation(t)
+
+        return sged(x, mu=mu, sigma=sigma, lamb=lamb, p=p)
+
+    def ppf(self, t: float, q: float) -> float:
+        """Percent point function.
+
+        Parameters
+        ----------
+        t : float-like
+            Timepoint at which the ppf is evaluated.
+        q : float-like
+            The quantile at which the ppf is evaluated. Should be between 0 and 1.
+
+        Returns
+        -------
+        float-like
+            The value of the ppf at q.
+        """
+        if not self._isfit():
+            raise DiscreteDistributionError("The distribution is not fitted.")
+
+        # Evaluate the parameters at the timepoints
+        mu, sigma, lamb, p = self.param_valuation(t)
+
+        if np.isscalar(t):
+            return sged_ppf_pwl_approximation(
+                q, mu=mu, sigma=sigma, lamb=lamb, p=p, n_pwl=self.n_pwl
             )
+
+        if np.isscalar(q):
+            q = np.full_like(t, q)
+
+        return np.array(
+            [
+                sged_ppf_pwl_approximation(
+                    qi, mu=mi, sigma=si, lamb=li, p=pi, n_pwl=self.n_pwl
+                )
+                for mi, si, li, pi, qi in zip(mu, sigma, lamb, p, q)
+            ]
         )
-    )
 
+    def fit(self, t: np.ndarray, x: np.ndarray):
+        """Fit the distribution to the data.
 
-@np.vectorize
-def sged_cdf(x, mu, sigma, lamb, p):
-    """
-    Cumulative distribution function of the SGED distribution.
+        Parameters
+        ----------
+        t : array of floats
+            Timepoints of the observations. It should be normalized so that the periodicity
+            of the data is 1 on the time axis.
+        x : array of floats
+            Observation data
+        """
+        if self.n_harmonics is None:
+            raise ValueError("The number of harmonics should be specified.")
 
-    Parameters
-    ----------
-    x : float
-        Value at which to evaluate the CDF.
-    mu : float
-        Location parameter.
-    sigma : float
-        Scale parameter.
-    lamb : float
-        Asymmetry parameter.
-    p : float
-        Shape parameter.
-
-    Returns
-    -------
-    float
-        Value of the CDF at x.
-    """
-    v, m, g1p = sged_pseudo_params(mu, sigma, lamb, p)
-    sigma_ = v * sigma * (1 + lamb * np.sign(x - mu + m))
-    x_ = np.abs(x - mu + m) / sigma_
-    x_lim = np.log(__TOLERANCE / __FLOAT_PRECISION) ** (1 / p)
-
-    if x_ <= x_lim:
-        return __sged_cdf_series(x, mu, sigma, lamb, p, v, m, g1p, tol=__TOLERANCE)
-    else:
-        return __sged_cdf_series_large(x, mu, sigma, lamb, p, v, m, g1p)
-
-
-def sged_cdf_int(x, mu, sigma, lamb, p):
-    """
-    Cumulative distribution function of the SGED distribution.
-
-    Parameters
-    ----------
-    x : float
-        Value at which to evaluate the CDF.
-    mu : float
-        Location parameter.
-    sigma : float
-        Scale parameter.
-    lamb : float
-        Asymmetry parameter.
-    p : float
-        Shape parameter.
-
-    Returns
-    -------
-    float
-        Value of the CDF at x.
-    """
-    return quad(sged, -np.inf, x, args=(mu, sigma, lamb, p))[0]
-
-
-@np.vectorize
-def __sged_cdf_series(x, mu, sigma, lamb, p, v, m, g1p, tol=1e-15):
-    """
-    Cumulative distribution function of the SGED distribution.
-    This method uses the Taylor series expansion of the CDF.
-
-    Parameters
-    ----------
-    x : array of floats
-        Values at which to evaluate the CDF.
-    mu : array of floats
-        Location parameter.
-    sigma : array of floats
-        Scale parameter.
-    lamb : array of floats
-        Asymmetry parameter.
-    p : array of floats
-        Shape parameter.
-
-    Returns
-    -------
-    array of floats
-        Values of the CDF at x.
-    """
-    # Center the data
-    x_centered = x - mu + m
-    x_sgn = np.sign(x_centered)
-    x_abs = np.abs(x_centered)
-
-    alpha = p / (2 * v * sigma * g1p)  # Coefficient in front of the exponential term
-    sigma_ = (
-        v * sigma * (1 + lamb * x_sgn)
-    )  # Apparent scale parameter in the exponential term
-    x_norm = x_abs / sigma_
-
-    # Initial values of the accumulators
-    xp = x_norm**p
-    F0 = (1 - lamb) / 2  # Initial value of the CDF at the mode x=mu+m
-
-    k = 0.0
-    ele = 1.0
-    prod = 1.0
-    series = 0.0
-
-    # Compute the series expansion until the additional term is smaller than the tolerance
-    while np.abs(ele) > tol and k < 100:
-        ele = prod / (k * p + 1)
-        series += ele
-        k += 1
-
-        prod /= k  # k!
-        prod *= -1  # (-1)^k
-        prod *= xp  # x^p^k
-
-    return F0 + alpha * x_centered * series
-
-
-@np.vectorize
-def __sged_cdf_series_large(x, mu, sigma, lamb, p, v, m, g1p):
-    """
-    Cumulative distribution function of the SGED distribution.
-    This method uses integration by parts and discards the residuals after
-    two iterations of the asymptotic expansion.
-    This is accurate only for large values of x.
-
-    Parameters
-    ----------
-    x : array of floats
-        Values at which to evaluate the CDF.
-    mu : array of floats
-        Location parameter.
-    sigma : array of floats
-        Scale parameter.
-    lamb : array of floats
-        Asymmetry parameter.
-    p : array of floats
-        Shape parameter.
-    v : array of floats
-        Pseudo parameter `v`.
-    m : array of floats
-        Pseudo parameter `m`.
-    g1p : array of floats
-        Gamma(1/p).
-
-    Returns
-    -------
-    array of floats
-        Values of the CDF at x.
-    """
-    # Center the data and use the pseudo-symmetry of the distribution (upper-tail)
-    x_centered = x - mu + m
-    x_sgn = np.sign(x_centered)
-    x_abs = np.abs(x_centered)
-
-    alpha = p / (2 * v * sigma * g1p)
-    sigma_ = v * sigma * (1 + lamb * x_sgn)
-    x_norm = x_abs / sigma_
-
-    # Computes the first two terms of the asymptotic expansion
-    series = (
-        np.exp(-(x_norm**p))
-        * (alpha * sigma_)
-        * (
-            1 / (p * x_norm ** (p - 1))
-            - 1 / (p**2 * (p - 1) * (1 + x_norm ** (p - 1)) * x_norm ** (2 * p))
+        # Fit the distribution
+        self.fit_summary = HarmonicSGED._maximize_llhood_sged_harmonics(
+            t / self.period, x, self.n_harmonics
         )
-    )
 
-    if x_sgn > 0:
-        return 1 - series
-    else:
-        return series
+        # Extract the parameters
+        self.mu, self.sigma, self.lamb, self.p = HarmonicSGED._split_params(
+            self.fit_summary.x, n_harmonics=self.n_harmonics
+        )
 
+    def param_valuation(self, t: float) -> list:
+        """Compute the actual value of the parameters for each timepoint.
 
-def maximize_llhood_sged(x):
-    """
-    Finds parameters maximizing the loglikelihood of the SGED
+        Parameters
+        ----------
+        t : float-like
+            Timepoint at which the parameters should be evaluated.
 
-    Parameters
-    ----------
-    x : array of floats
-        Observation data
+        Returns
+        -------
+        mu : array-like
+            Actual values of the mu parameter for each timepoint.
+        sigma : array-like
+            Actual values of the sigma parameter for each timepoint.
+        lamb : array-like
+            Actual values of the lambda parameter for each timepoint.
+        p : array-like
+            Actual values of the p parameter for each timepoint.
+        """
+        if not self._isfit():
+            raise DiscreteDistributionError("The distribution is not fitted.")
 
-    Returns
-    -------
-    popt : OptimizeResult
-        Result of the optimization. `popt.x` contains the optimal fit parameters.
-    """
+        return harmonics_valuation(
+            self.mu, self.sigma, self.lamb, self.p, t=t, period=self.period
+        )
 
-    # Auxiliary function to compute the negative loglikelihood
-    def neg_llhood(params: np.ndarray, observations: np.ndarray) -> float:
-        return -np.sum(np.log(sged(observations, *params)))
+    @staticmethod
+    def _maximize_llhood_sged_harmonics(
+        t: np.ndarray, x: np.ndarray, n_harmonics: int
+    ) -> dict:
+        """
+        Finds parameters maximizing the loglikelihood of the SGED with parameters
+        cyclicly depending on time
 
-    # Initial guess for the parameters
-    p0 = (0, 1, 0, 2)
+        Parameters
+        ----------
+        t : array of floats
+            Timepoints of the observations. It should be normalized so that the periodicity
+            of the data is 1 on the time axis.
+        x : array of floats
+            Observation data
+        n_harmonics : int
+            Number of harmonics to consider. Zero corresponds to constant parameters (i.e.
+            no time dependence)
 
-    # Mimimize the negative loglikelihood
-    popt = minimize(
-        neg_llhood, p0, x, bounds=[(None, None), (0, None), (-1, 1), (0, None)]
-    )
-    return popt
+        Returns
+        -------
+        summary : dict
+            `popt = popt_["x"]` contains the optimal fit parameters. If `p = 2 * n_harmonics + 1`, then
+            `popt[:p] contains the fit of the `mu` parameter.
+            `popt[p:2*p] contains the fit of the `sigma` parameter.
+            `popt[2*p:3*p] contains the fit of the `lambda` parameter.
+            `popt[3*p:] contains the fit of the `p` parameter.
+            For each parameter, the array of `p` elements models the parameter as:
+            `theta(t) = popt[0] + sum(popt[2*k-1] * cos(2 * pi * k * t) + popt[2*k] * sin(2 * pi * k * t) for k in range(n_harmonics))`
+        """
+        # Initial guess for the parameters (constant parameters, mu=0, sigma=1, lambda=0, p=2)
+        p0_const = (0, 1, 0, 2)
+        p0 = tuple(np.concatenate([[p] + [0] * (2 * n_harmonics) for p in p0_const]))
 
+        # Bounds for the parameters
+        bounds_const = [(None, None), (0, None), (-1, 1), (0, None)]
+        bounds_harm = [(None, None), (None, None), (-1, 1), (None, None)]
 
-def maximize_llhood_sged_harmonics(t: np.ndarray, x: np.ndarray, n_harmonics: int):
-    """
-    Finds parameters maximizing the loglikelihood of the SGED with parameters
-    cyclicly depending on time
+        bounds = np.concatenate(
+            [
+                [b0] + [bh] * (2 * n_harmonics)
+                for (b0, bh) in zip(bounds_const, bounds_harm)
+            ]
+        )
 
-    Parameters
-    ----------
-    t : array of floats
-        Timepoints of the observations. It should be normalized so that the periodicity
-        of the data is 1 on the time axis.
-    x : array of floats
-        Observation data
-    n_harmonics : int
-        Number of harmonics to consider. Zero corresponds to constant parameters (i.e.
-        no time dependence)
+        # Mimimize the negative loglikelihood
+        return minimize(
+            fun=HarmonicSGED._neg_llhood, x0=p0, args=(t, x, n_harmonics), bounds=bounds
+        )
 
-    Returns
-    -------
-    popt_ : dict
-        `popt = popt_["x"]` contains the optimal fit parameters. If `p = 2 * n_harmonics + 1`, then
-        `popt[:p] contains the fit of the `mu` parameter.
-        `popt[p:2*p] contains the fit of the `sigma` parameter.
-        `popt[2*p:3*p] contains the fit of the `lambda` parameter.
-        `popt[3*p:] contains the fit of the `p` parameter.
-        For each parameter, the array of `p` elements models the parameter as:
-        `theta(t) = popt[0] + sum(popt[2*k-1] * cos(2 * pi * k * t) + popt[2*k] * sin(2 * pi * k * t) for k in range(n_harmonics))`
-    """
-
-    # Auxiliary function to compute the negative loglikelihood
-    def neg_llhood(
-        params: np.ndarray, t: np.ndarray, observations: np.ndarray, n_harmonics: int
+    @staticmethod
+    def _neg_llhood(
+        params: np.ndarray,
+        t: np.ndarray,
+        x: np.ndarray,
+        n_harmonics: int,
+        period: float = 1.0,
     ) -> float:
         # Evaluate the parameters at each timepoint
-        params_val = harmonics_parameter_valuation(params, t, n_harmonics, 4)
+        mu, sigma, lamb, p = harmonics_valuation(
+            *HarmonicSGED._split_params(params, n_harmonics=n_harmonics),
+            t=t,
+            period=period
+        )
+        sigma = np.clip(sigma, HarmonicSGED.PARAMETER_TOL, None)
+        lamb = np.clip(
+            lamb, -1 + HarmonicSGED.PARAMETER_TOL, 1 - HarmonicSGED.PARAMETER_TOL
+        )
+        p = np.clip(p, HarmonicSGED.PARAMETER_TOL, None)
 
         # Compute the negative loglikelihood
         return -np.sum(
             np.log(
                 sged(
-                    observations,
-                    mu=params_val[0, :],
-                    sigma=params_val[1, :],
-                    lamb=params_val[2, :],
-                    p=params_val[3, :],
+                    x,
+                    mu=mu,
+                    sigma=sigma,
+                    lamb=lamb,
+                    p=p,
                 )
             )
         )
 
-    # Initial guess for the parameters (constant parameters, mu=0, sigma=1, lambda=0, p=2)
-    p0_const = (0, 1, 0, 2)
-    p0 = tuple(sum([[p] + [0] * (2 * n_harmonics) for p in p0_const], start=[]))
+    @staticmethod
+    def _split_params(params: np.ndarray, n_harmonics: int) -> tuple:
+        """Split the parameters into the harmonics.
 
-    # Bounds for the parameters
-    bounds_const = [(None, None), (0, None), (-1, 1), (0, None)]
-    bounds_harm = [(None, None), (None, None), (-1, 1), (None, None)]
+        Parameters
+        ----------
+        params : array of floats
+            Parameters of the distribution. The array should have a shape of
+            `2 * n_harmonics + 1`, where `n_harmonics` is the number of harmonics to consider.
+            The parameters are cyclicly dependent on time, with `n_harmonics` harmonics
+            considered.
+            The first element `params[0]` of the encoding is the constant term, and the
+            following elements `params[2*k-1]` and `params[2*k]` are the coefficients of the
+            cosine and sine terms respectively of the `k`-th harmonics.
 
-    bounds = sum(
-        [
-            [b0] + [bh] * (2 * n_harmonics)
-            for (b0, bh) in zip(bounds_const, bounds_harm)
-        ],
-        start=[],
-    )
+        n_harmonics : int
+            Number of harmonics to consider.
 
-    # Mimimize the negative loglikelihood
-    popt = minimize(fun=neg_llhood, x0=p0, args=(t, x, n_harmonics), bounds=bounds)
-    return popt
+        Returns
+        -------
+        tuple of arrays of floats
+            The parameters split into the harmonics. The tuple contains the harmonics of
+            the `mu`, `sigma`, `lambda`, and `p` parameters.
+        """
+        p = 2 * n_harmonics + 1
+        return params[:p], params[p : 2 * p], params[2 * p : 3 * p], params[3 * p :]
+
+    def _isfit(self) -> bool:
+        """Check if the distribution is fitted.
+
+        Returns
+        -------
+        bool
+            True if the distribution is fitted, False otherwise.
+        """
+        return all(
+            param is not None for param in [self.mu, self.sigma, self.lamb, self.p]
+        )

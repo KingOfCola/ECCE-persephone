@@ -13,7 +13,7 @@ import numpy as np
 
 
 def harmonics_valuation(
-    params: np.ndarray,
+    *params: np.ndarray,
     t: np.ndarray,
     period: float = 1.0,
 ) -> np.ndarray:
@@ -42,6 +42,14 @@ def harmonics_valuation(
         `len(t)`, where `len(t)` is the number of timepoints at which the parameters should be evaluated.
         `params_val[i]` contains the value of parameter at the `i`-th timepoint.
     """
+    # Utilities for more than one parameter family
+    if len(params) == 0:
+        raise ValueError("No parameters provided")
+    elif len(params) > 1:
+        return (harmonics_valuation(param, t=t, period=period) for param in params)
+
+    params = params[0]
+
     # Initializes the actual values of the parameters for each timepoint
     params_val = np.zeros(len(t))
 

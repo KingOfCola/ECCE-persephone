@@ -176,6 +176,21 @@ class HarmonicDistribution:
         """
         raise NotImplementedError("The method fit is not implemented.")
 
+    def param_valuation(self, t: float) -> list:
+        """Compute the actual value of the parameters for each timepoint.
+
+        Parameters
+        ----------
+        t : float-like
+            Timepoint at which the parameters should be evaluated.
+
+        Returns
+        -------
+        array-like
+            Actual values of the parameters for each timepoint.
+        """
+        raise NotImplementedError("The method param_valuation is not implemented.")
+
     def _isfit(self) -> bool:
         """Check if the distribution is fitted.
 
