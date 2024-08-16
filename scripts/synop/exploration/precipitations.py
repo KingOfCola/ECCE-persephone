@@ -20,17 +20,12 @@ from itertools import pairwise
 import seaborn as sns
 from matplotlib import pyplot as plt
 
-from core.mathematics.correlations import autocorrelation
 from core.optimization.piecewise import (
     fit_piecewise_linear,
     fit_piecewise_linear_AIC,
     piecewise_linear_breakpoints,
 )
-from core.optimization.harmonics import (
-    reconstruct_harmonics,
-    harmonics_parameter_valuation,
-)
-from core.distributions.sged import maximize_llhood_sged_harmonics, sged_cdf
+from core.distributions.sged import HarmonicSGED
 from plots.mapplot import plot_map, set_lims
 from plots.annual import (
     month_xaxis,
@@ -41,6 +36,62 @@ from plots.annual import (
 )
 from utils.paths import data_dir, output
 from utils.strings import capitalize
+
+
+def mean_excess(values, min_value: float = -np.inf, window_size: int = 3):
+    peaks = find_peaks(values, height=min_value, distance=WINDOW_SIZE)[0]
+    importance = np.argsort(values[peaks])
+    data = values[peaks][importance]
+
+    n = len(data)
+    excess_expected = np.zeros(n)
+    excess_std = np.zeros(n)
+
+    for i, u in enumerate(data):
+        if i == n - 1:
+            excess_expected[i] = np.nan
+            excess_std[i] = np.nan
+        else:
+            excess_expected[i] = np.mean(data[i + 1 :]) - u
+            excess_std[i] = np.std(data[i + 1 :]) / np.sqrt(n - i - 1)
+
+    return data, excess_expected, excess_std, peaks[importance]
+
+
+def truncate(values, *others, lims: tuple = (-np.inf, np.inf), skip: tuple = (0, 0)):
+    where = (values >= lims[0]) & (values < lims[1])
+    n = np.sum(where)
+    return (value[where][skip[0] : n - skip[1]] for value in (values, *others))
+
+
+def plot_ksi_breakpoints(
+    thresholds, expected_excesses, ax, bp_lines=True, ksi_labels=True
+):
+    ax.plot(
+        thresholds, expected_excesses, c="r", ls="--", label="Piecewise linear fit"
+    )  # Add the slope
+
+    if bp_lines:
+        for i in range(len(thresholds) - 1):
+            u_start = thresholds[i]
+            u_end = thresholds[i + 1]
+            exex_start = expected_excesses[i]
+            exex_end = expected_excesses[i + 1]
+            u_mean = (u_start + u_end) / 2
+            slope = (exex_end - exex_start) / (u_end - u_start)
+            ksi_1 = 1 - 1 / (1 + slope)
+
+            ax.axvline(u_start, c="r", ls=":", lw=0.5)
+            if ksi_labels:
+                ax.text(
+                    u_mean,
+                    0,
+                    rf"$\xi={ksi_1:.2f}$",
+                    fontsize=8,
+                    c="r",
+                    ha="center",
+                    va="bottom",
+                )
 
 
 if __name__ == "__main__":
@@ -68,7 +119,7 @@ if __name__ == "__main__":
     )
 
     RAW_DIR = data_dir("Meteo-France_SYNOP/Raw")
-    OUT_DIR = output("Meteo-France_SYNOP/Description")
+    OUT_DIR = output("Meteo-France_SYNOP/Precipitations/log-SGED")
     os.makedirs(OUT_DIR, exist_ok=True)
 
     STATIONS = pd.read_csv(os.path.join(RAW_DIR, "postesSynop.csv"), sep=";")
@@ -90,9 +141,12 @@ if __name__ == "__main__":
     WINDOW_SIZE = 3
     STATIONS_OF_INTEREST = [7072, 7110, 7690, 7149, 7535, 7190]
     STATION = STATIONS_OF_INTEREST[2]
-    STATION_NAME = capitalize(
-        STATIONS.loc[STATIONS["ID"] == STATION, "Nom"].values[0], sep="-"
-    )
+    STATION_NAMES = {
+        station: capitalize(
+            STATIONS.loc[STATIONS["ID"] == station, "Nom"].values[0], sep="-"
+        )
+        for station in STATIONS_OF_INTEREST
+    }
 
     # ================================================================================================
     # Data exploration
@@ -170,10 +224,7 @@ if __name__ == "__main__":
     for station in STATIONS_OF_INTEREST:
         precip = precip_all[station]
         precip = precip[precip > 0]
-        station_name = capitalize(
-            STATIONS.loc[STATIONS["ID"] == station, "Nom"].values[0], sep="-"
-        )
-        sns.kdeplot(precip, ax=ax, label=f"{station_name} ({station})")
+        sns.kdeplot(precip, ax=ax, label=f"{STATION_NAMES[station]} ({station})")
     # ax.set_xscale("log")
     # ax.set_yscale("log")
     ax.set_xlabel("Precipitation (mm)", fontsize=12)
@@ -185,66 +236,10 @@ if __name__ == "__main__":
     fig.savefig(os.path.join(OUT_DIR, f"precipitation_distribution_stations.png"))
     plt.show()
 
-    def mean_excess(values, min_value: float = -np.inf, window_size: int = WINDOW_SIZE):
-        peaks = find_peaks(values, height=min_value, distance=WINDOW_SIZE)[0]
-        importance = np.argsort(values[peaks])
-        data = values[peaks][importance]
-
-        n = len(data)
-        excess_expected = np.zeros(n)
-        excess_std = np.zeros(n)
-
-        for i, u in enumerate(data):
-            if i == n - 1:
-                excess_expected[i] = np.nan
-                excess_std[i] = np.nan
-            else:
-                excess_expected[i] = np.mean(data[i + 1 :]) - u
-                excess_std[i] = np.std(data[i + 1 :]) / np.sqrt(n - i - 1)
-
-        return data, excess_expected, excess_std, peaks[importance]
-
-    def truncate(
-        values, *others, lims: tuple = (-np.inf, np.inf), skip: tuple = (0, 0)
-    ):
-        where = (values >= lims[0]) & (values < lims[1])
-        n = np.sum(where)
-        return (value[where][skip[0] : n - skip[1]] for value in (values, *others))
-
-    def plot_ksi_breakpoints(
-        thresholds, expected_excesses, ax, bp_lines=True, ksi_labels=True
-    ):
-        ax.plot(
-            thresholds, expected_excesses, c="r", ls="--", label="Piecewise linear fit"
-        )  # Add the slope
-
-        if bp_lines:
-            for i in range(len(thresholds) - 1):
-                u_start = thresholds[i]
-                u_end = thresholds[i + 1]
-                exex_start = expected_excesses[i]
-                exex_end = expected_excesses[i + 1]
-                u_mean = (u_start + u_end) / 2
-                slope = (exex_end - exex_start) / (u_end - u_start)
-                ksi_1 = 1 - 1 / (1 + slope)
-
-                ax.axvline(u_start, c="r", ls=":", lw=0.5)
-                if ksi_labels:
-                    ax.text(
-                        u_mean,
-                        0,
-                        rf"$\xi={ksi_1:.2f}$",
-                        fontsize=8,
-                        c="r",
-                        ha="center",
-                        va="bottom",
-                    )
-
     # ME-plot
     for station in STATIONS_OF_INTEREST:
-        station_name = capitalize(
-            STATIONS.loc[STATIONS["ID"] == station, "Nom"].values[0], sep="-"
-        )
+        out_dir_station = os.path.join(OUT_DIR, f"station_{station}")
+        os.makedirs(out_dir_station, exist_ok=True)
 
         data, excess_expected, excess_std, peaks = mean_excess(
             precip_all[station].values
@@ -252,7 +247,7 @@ if __name__ == "__main__":
         dates = precip_all["date"].values[peaks]
         doy = precip_all["day_of_year"].values[peaks]
 
-        print(f"\nStation: {station_name}")  # Print the station name
+        print(f"\nStation: {STATION_NAMES[station]}")  # Print the station name
         for i in range(1, 6):
             print(f"{data[-i]:.1f} : {dates[-i]}")
 
@@ -296,7 +291,8 @@ if __name__ == "__main__":
         ax.set_xlabel("Threshold $u$", fontsize=12)
         ax.set_ylabel("Expected excess", fontsize=12)
         ax.legend()
-        fig.suptitle(f"Station {station_name} ({station})")
+        fig.suptitle(f"Station {STATION_NAMES[station]} ({station})")
+        fig.savefig(os.path.join(out_dir_station, "mean-excess-plot.png"))
         plt.show()
 
         quantiles = [0.25, 0.5, 0.75, 1]
@@ -330,6 +326,7 @@ if __name__ == "__main__":
         ax.grid(axis="y", which="major", ls=":", alpha=0.5, c="gray", lw=1)
         ax.grid(axis="y", which="minor", ls=":", alpha=0.3)
         month_xaxis(ax)
+        fig.savefig(os.path.join(out_dir_station, "monthly_quantiles.png"))
         plt.show()
 
     max_threshold = 0
@@ -388,123 +385,139 @@ if __name__ == "__main__":
     # ===============================================================================================
     # SGED model log precipitations
     # ===============================================================================================
-    n_harm = 2
+    for station in STATIONS_OF_INTEREST:
+        out_dir_station = os.path.join(OUT_DIR, f"station_{station}")
+        os.makedirs(out_dir_station, exist_ok=True)
 
-    precip_station = precip_all.loc[:, STATION].values
-    days_of_year = precip_all["day_of_year"].values
-    dates = precip_all["date"].values
-    data_station, excess_station, excess_std_station, peaks_station = mean_excess(
-        precip_station, min_value=MIN_PRECIPITATION
-    )
-    log_precip_station = np.log(data_station)
-    days_of_year_station = days_of_year[peaks_station]
-    dates_station = dates[peaks_station]
+        n_harm = 2
 
-    sged_fit = maximize_llhood_sged_harmonics(
-        days_of_year_station / DAYS_IN_YEAR, x=log_precip_station, n_harmonics=n_harm
-    )
+        precip_station = precip_all.loc[:, station].values
+        days_of_year = precip_all["day_of_year"].values
+        dates = precip_all["date"].values
+        data_station, excess_station, excess_std_station, peaks_station = mean_excess(
+            precip_station, min_value=MIN_PRECIPITATION
+        )
+        log_precip_station = np.log(data_station)
+        days_of_year_station = days_of_year[peaks_station]
+        dates_station = dates[peaks_station]
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    sns.histplot(log_precip_station, ax=ax, kde=True, stat="density")
-    plt.show()
+        sged_harmonic = HarmonicSGED(n_harmonics=n_harm, period=DAYS_IN_YEAR)
+        sged_harmonic.fit(t=days_of_year_station, x=log_precip_station)
 
-    popt = sged_fit["x"]
-    doy = np.arange(365)
-
-    reconstructed_params = harmonics_parameter_valuation(
-        popt, t=doy, n_harmonics=n_harm, n_params=4, period=DAYS_IN_YEAR
-    )
-
-    fig, axes = plt.subplots(4, figsize=(6, 6), sharex=True)
-    for i, param in enumerate([r"\mu", r"\sigma", r"\lambda", "p"]):
-        ax = axes[i]
-
-        ax.plot(doy, reconstructed_params[i, :])
-        ax.set_ylabel(f"${param}$")
+        fig, ax = plt.subplots(figsize=(6, 6))
+        sns.histplot(log_precip_station, ax=ax, kde=True, stat="density")
+        ax.set_xlabel("Log precipitation (mm)")
+        ax.set_ylabel("Density")
+        ax.set_title(f"Station {STATION_NAMES[station]} ({station})")
         ax.grid(ls=":", alpha=0.5)
-        month_xaxis(ax)
-    axes[-1].set_xlabel("Day of year")
-    axes[-1].set_xlim(0, 365)
-    plt.show()
+        fig.savefig(os.path.join(out_dir_station, "log_precipitation_density.png"))
+        plt.show()
 
-    # ================================================================================================
-    # CDF check
-    # ================================================================================================
-    params_station = harmonics_parameter_valuation(
-        popt,
-        t=days_of_year_station,
-        n_harmonics=n_harm,
-        n_params=4,
-        period=DAYS_IN_YEAR,
-    )
-    sged_cdf_station = sged_cdf(
-        log_precip_station,
-        params_station[0, :],
-        params_station[1, :],
-        params_station[2, :],
-        params_station[3, :],
-    )
+        doy = np.arange(365)
 
-    normal_quantiles = stats.norm.ppf(
-        (np.arange(len(data_station)) + 0.5) / len(data_station)
-    )
-    sged_quantiles = stats.norm.ppf(sged_cdf_station)
+        mu, sigma, lamb, p = sged_harmonic.param_valuation(doy)
+        PARAMS_SETTINGS = [
+            {"name": r"$\mu$", "lims": (0, 3), "param": mu},
+            {"name": r"$\sigma$", "lims": (0, 3), "param": sigma},
+            {"name": r"$\lambda$", "lims": (-1, 1), "param": lamb},
+            {"name": r"$p$", "lims": (0, 6), "param": p},
+        ]
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.plot(normal_quantiles, np.sort(sged_quantiles), "o")
-    ax.axline((0, 0), (1, 1), c="k", ls="--")
-    ax.set_xlabel("Normal quantiles")
-    ax.set_ylabel("SGED quantiles")
+        fig, axes = plt.subplots(4, figsize=(6, 6), sharex=True)
+        for i in range(4):
+            ax = axes[i]
+            param_name = PARAMS_SETTINGS[i]["name"]
+            param_value = PARAMS_SETTINGS[i]["param"]
 
-    plt.show()
+            ax.plot(doy, param_value)
+            ax.set_ylabel(f"${param_name}$")
+            ax.grid(ls=":", alpha=0.5)
+            ax.set_ylim(*PARAMS_SETTINGS[i]["lims"])
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    scatter = ax.scatter(
-        data_station, sged_cdf_station, c=days_of_year_station, s=3, cmap=DOY_CMAP
-    )
-    cbar = fig.colorbar(scatter, ax=ax, ticks=MONTHS_CENTER)
-    cbar.ax.set_yticklabels(MONTHS_LABELS_3)
-    ax.set_xlabel("Precipitation (mm)")
-    ax.set_ylabel("SGED CDF")
-    ax.set_ylim(0, 1.1)
-    ax.set_xlim(0, None)
-    plt.show()
+            month_xaxis(ax)
+        axes[-1].set_xlabel("Day of year")
+        axes[-1].set_xlim(0, 365)
+        fig.suptitle(f"Station {STATION_NAMES[station]} ({station})")
+        fig.savefig(os.path.join(out_dir_station, "harmonics_parameters.png"))
+        plt.show()
 
-    # ================================================================================================
-    # Return periods
-    # ================================================================================================
-    n_annotations = 5
-    prob_of_rain = 1 - null_precip[STATION]
-    return_period = 1 / (1 - sged_cdf_station) / (DAYS_IN_YEAR * prob_of_rain)
-    order_return_period = np.argsort(return_period)
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    scat = ax.scatter(
-        dates_station,
-        return_period,
-        c=days_of_year_station,
-        s=(data_station / data_station[-1] * 10) ** 2,
-        cmap=DOY_CMAP,
-    )
-    cbar = fig.colorbar(scat, ax=ax, ticks=MONTHS_CENTER)
-    cbar.ax.set_yticklabels(MONTHS_LABELS_3)
-
-    for i in order_return_period[-n_annotations:]:
-        date = dates_station[i]
-        rp = return_period[i]
-        precip = data_station[i]
-
-        ax.annotate(
-            f"{np.datetime_as_string(date, unit='D')}: {precip:.1f}mm\nRP: {rp:.1f} years",
-            (date, rp),
-            textcoords="offset points",
-            xytext=(0, 5),
-            ha="center",
-            fontsize=8,
+        # ================================================================================================
+        # CDF check
+        # ================================================================================================
+        sged_cdf_station = sged_harmonic.cdf(
+            t=days_of_year_station,
+            x=log_precip_station,
         )
 
-    ax.set_xlabel("Precipitation (mm)")
-    ax.set_ylabel("Return period (years)")
-    ax.set_ylim(0, max(return_period) * 1.1)
-    fig.suptitle(f"Station {STATION_NAME} ({STATION})")
-    plt.show()
+        normal_quantiles = stats.norm.ppf(
+            (np.arange(len(data_station)) + 0.5) / len(data_station)
+        )
+        sged_quantiles = stats.norm.ppf(sged_cdf_station)
+
+        # QQ-plot
+        # -------
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.plot(normal_quantiles, np.sort(sged_quantiles), "o")
+        ax.axline((0, 0), (1, 1), c="k", ls="--")
+        ax.set_xlabel("Normal quantiles")
+        ax.set_ylabel(r"$\Phi^{-1}(F_{SGED}(x))$")
+        ax.set_title(f"Station {STATION_NAMES[station]} ({station})")
+
+        fig.savefig(os.path.join(out_dir_station, "normal-qqplot.png"))
+        plt.show()
+
+        # Cumulative distribution function
+        # --------------------------------
+        fig, ax = plt.subplots(figsize=(6, 6))
+        scatter = ax.scatter(
+            data_station, sged_cdf_station, c=days_of_year_station, s=3, cmap=DOY_CMAP
+        )
+        cbar = fig.colorbar(scatter, ax=ax, ticks=MONTHS_CENTER)
+        cbar.ax.set_yticklabels(MONTHS_LABELS_3)
+        ax.set_xlabel("Precipitation (mm)")
+        ax.set_ylabel("SGED CDF")
+        ax.set_ylim(0, 1.1)
+        ax.set_xlim(0, None)
+        ax.set_title(f"Station {STATION_NAMES[station]} ({station})")
+        fig.savefig(os.path.join(out_dir_station, "sged-cdf-by-month.png"))
+        plt.show()
+
+        # ================================================================================================
+        # Return periods
+        # ================================================================================================
+        n_annotations = 5
+        prob_of_rain = 1 - null_precip[station]
+        return_period = 1 / (1 - sged_cdf_station) / (DAYS_IN_YEAR * prob_of_rain)
+        order_return_period = np.argsort(return_period)
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        scat = ax.scatter(
+            dates_station,
+            return_period,
+            c=days_of_year_station,
+            s=(data_station / data_station[-1] * 10) ** 2,
+            cmap=DOY_CMAP,
+        )
+        cbar = fig.colorbar(scat, ax=ax, ticks=MONTHS_CENTER)
+        cbar.ax.set_yticklabels(MONTHS_LABELS_3)
+
+        for i in order_return_period[-n_annotations:]:
+            date = dates_station[i]
+            rp = return_period[i]
+            precip = data_station[i]
+
+            ax.annotate(
+                f"{np.datetime_as_string(date, unit='D')}: {precip:.1f}mm\nRP: {rp:.1f} years",
+                (date, rp),
+                textcoords="offset points",
+                xytext=(0, 5),
+                ha="center",
+                fontsize=8,
+            )
+
+        ax.set_xlabel("Precipitation (mm)")
+        ax.set_ylabel("Return period (years)")
+        ax.set_ylim(0, max(return_period) * 1.1)
+        fig.suptitle(f"Station {STATION_NAMES[station]} ({station})")
+        fig.savefig(os.path.join(out_dir_station, "return_periods.png"))
+        plt.show()
