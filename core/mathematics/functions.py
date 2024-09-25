@@ -33,6 +33,22 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
     return 1 / (1 + np.exp(-x))
 
 
+def selu(x: np.ndarray) -> np.ndarray:
+    """Soft Exponential Linear Unit (SELU) activation function.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Input values.
+
+    Returns
+    -------
+    np.ndarray
+        SELU values.
+    """
+    return np.log(1 + np.exp(x))
+
+
 def check_sged_params(mu: float, sigma: float, lamb: float, p: float):
     """
     Checks the parameters of the SGED distribution.
@@ -132,6 +148,37 @@ def sged(x, mu: float, sigma: float, lamb: float, p: float):
                 ** p
             )
         )
+    )
+
+
+def log_sged(x, mu: float, sigma: float, lamb: float, p: float):
+    """
+    Logarithm of the probability density function of the SGED distribution.
+
+    Parameters
+    ----------
+    x : float or array of floats
+        Value at which to evaluate the PDF.
+    mu : float
+        Location parameter.
+    sigma : float
+        Scale parameter.
+    lamb : float
+        Asymmetry parameter.
+    p : float
+        Shape parameter.
+
+    Returns
+    -------
+    float or array of floats
+        Value of the log-PDF at x.
+    """
+    v, m, g1p = sged_pseudo_params(mu, sigma, lamb, p)
+
+    return (
+        np.log(p)
+        - np.log(2 * v * sigma * g1p)
+        - (np.abs(x - mu + m) / (v * sigma * (1 + lamb * np.sign(x - mu + m)))) ** p
     )
 
 
@@ -353,3 +400,57 @@ def sged_ppf_pwl_approximation(q, mu, sigma, lamb, p, n_pwl=1001):
 
     # Compute the quantiles
     return np.interp(q, Fi, xi)
+
+
+@np.vectorize
+def gpd_cdf(x: float, ksi: float):
+    """
+    Cumulative distribution function of the Generalized Pareto Distribution.
+
+    Parameters
+    ----------
+    x : array of floats
+        Values at which to evaluate the CDF.
+    ksi : float
+        Shape parameter.
+
+    Returns
+    -------
+    array of floats
+        Values of the CDF at x.
+    """
+    if x < 0:
+        return 0.0
+    if ksi == 0:
+        return 1 - np.exp(-x)
+    else:
+        if ksi < 0.0 and x > -1 / ksi:
+            return 1.0
+        return 1 - (1 + ksi * x) ** (-1 / ksi)
+
+
+@np.vectorize
+def gpd_pdf(x: float, ksi: float):
+    """
+    Probability density function of the Generalized Pareto Distribution.
+
+    Parameters
+    ----------
+    x : array of floats
+        Values at which to evaluate the PDF.
+    ksi : float
+        Shape parameter.
+
+    Returns
+    -------
+    array of floats
+        Values of the PDF at x.
+    """
+    if x < 0:
+        return 0.0
+    if ksi == 0:
+        return np.exp(-x)
+    else:
+        if ksi < 0.0 and x > -1 / ksi:
+            return 0.0
+        return (1 + ksi * x) ** (-1 / ksi - 1)

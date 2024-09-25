@@ -7,11 +7,38 @@
 @Contact :   urvan.christen@gmail.com
 @Desc    :   Abstract class for random variables
 """
+import numpy as np
+
+from core.mathematics.inversion import pwl_inverse
 
 
 class Distribution:
     def __init__(self):
-        pass
+        self._xmin = None
+        self._xmax = None
+        self._n_pwl = 1001
+
+    @property
+    def xmin(self) -> float:
+        """Minimum value of the domain.
+
+        Returns
+        -------
+        float-like
+            The minimum value of the domain.
+        """
+        return self._xmin
+
+    @property
+    def xmax(self) -> float:
+        """Maximum value of the domain.
+
+        Returns
+        -------
+        float-like
+            The maximum value of the domain.
+        """
+        return self._xmax
 
     def cdf(self, x: float) -> float:
         """Cumulative distribution function.
@@ -56,7 +83,10 @@ class Distribution:
         float-like
             The value of the ppf at q.
         """
-        raise NotImplementedError("The method ppf is not implemented.")
+        xmin = self.xmin if self.xmin is not None else 0
+        xmax = self.xmax if self.xmax is not None else 1
+
+        return pwl_inverse(q, self.cdf, xmin, xmax, self._n_pwl)
 
     def rvs(self, n: int) -> list:
         """Generate random variates.
@@ -71,7 +101,8 @@ class Distribution:
         array-like
             The random variates.
         """
-        raise NotImplementedError("The method rvs is not implemented.")
+        u = np.random.rand(n)
+        return [self.ppf(q) for q in u]
 
     def fit(self, data: list):
         """Fit the distribution to the data.

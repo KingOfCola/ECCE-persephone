@@ -122,7 +122,7 @@ class HarmonicBernoulli(HarmonicDistribution):
         """
         x = np.array(x)
         HarmonicBernoulli._check_values_validity(x)
-        log_p = harmonics_valuation(params=self.mu, t=t, period=self.period)
+        log_p = harmonics_valuation(self.mu, t=t, period=self.period)
         p = self._kernel_func(log_p)
         return p * (x == 1) + (1 - p) * (x == 0)
 
@@ -158,7 +158,7 @@ class HarmonicBernoulli(HarmonicDistribution):
         float-like
             The random variate generated.
         """
-        log_p = harmonics_valuation(params=self.mu, t=t, period=self.period)
+        log_p = harmonics_valuation(self.mu, t=t, period=self.period)
         p = self._kernel_func(log_p)
         return np.random.rand(*t.shape) < p
 
@@ -192,7 +192,7 @@ class HarmonicBernoulli(HarmonicDistribution):
         mu : array-like
             Actual values of the parameter p of the Bernoulli distribution for each timepoint.
         """
-        return harmonics_valuation(params=self.mu, t=t, period=self.period)
+        return harmonics_valuation(self.mu, t=t, period=self.period)
 
     @staticmethod
     def _fit_harmonics(
@@ -242,7 +242,7 @@ class HarmonicBernoulli(HarmonicDistribution):
         float-like
             The log-likelihood of the distribution.
         """
-        log_p = harmonics_valuation(params=mu, t=t, period=1.0)
+        log_p = harmonics_valuation(mu, t=t, period=1.0)
         p = kernel_func(log_p)
         return np.sum(np.log(p * (x == 1) + (1 - p) * (x == 0)))
 

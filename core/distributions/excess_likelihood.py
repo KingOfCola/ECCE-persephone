@@ -1,4 +1,5 @@
 import numpy as np
+from numba import njit
 
 from core.distributions.ecdf import ecdf_multivariate
 
@@ -153,13 +154,13 @@ def alpha_to_correlation(alpha: float) -> float:
 
 
 # Helper functions
-@np.vectorize
+@njit
 def upsilon(x, alpha, beta=None):
     # In the case of a symmetric distribution
     if beta is None:
         beta = 1.0 - alpha
 
-    x = np.clip(x, 0.0, 1.0)
+    x = 0.0 if x < 0.0 else x if x < 1.0 else 1.0
 
     if alpha <= beta:
         if x < alpha:
@@ -209,6 +210,7 @@ def upsilon_inv(x, alpha, beta=None):
         return np.inf
 
 
+@njit
 def inertial_markov_process(n: int, alpha: float) -> np.ndarray:
     """
     Generate a sequence of samples from a uniform distribution with inertia.
@@ -237,6 +239,7 @@ def inertial_markov_process(n: int, alpha: float) -> np.ndarray:
     return u
 
 
+@njit
 def uniform_inertial(n: int, p: int, alpha: float) -> np.ndarray:
     """
     Generate a sequence of samples from a uniform distribution with inertia.

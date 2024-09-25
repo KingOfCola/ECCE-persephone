@@ -14,7 +14,13 @@ from scipy.optimize import minimize
 
 from core.distributions.dist import HarmonicDistribution, DiscreteDistributionError
 from core.mathematics.harmonics import harmonics_valuation
-from core.mathematics.functions import sged, sged_cdf, sged_ppf_pwl_approximation
+from core.mathematics.functions import (
+    log_sged,
+    selu,
+    sged,
+    sged_cdf,
+    sged_ppf_pwl_approximation,
+)
 
 
 class HarmonicSGED(HarmonicDistribution):
@@ -164,13 +170,15 @@ class HarmonicSGED(HarmonicDistribution):
         if not self._isfit():
             raise DiscreteDistributionError("The distribution is not fitted.")
 
+        if np.isscalar(t):
+            # Evaluate the parameters at the timepoints
+            mu, sigma, lamb, p = self.param_valuation(np.array([t]))
+            return sged_ppf_pwl_approximation(
+                q, mu=mu[0], sigma=sigma[0], lamb=lamb[0], p=p[0], n_pwl=self.n_pwl
+            )
+
         # Evaluate the parameters at the timepoints
         mu, sigma, lamb, p = self.param_valuation(t)
-
-        if np.isscalar(t):
-            return sged_ppf_pwl_approximation(
-                q, mu=mu, sigma=sigma, lamb=lamb, p=p, n_pwl=self.n_pwl
-            )
 
         if np.isscalar(q):
             q = np.full_like(t, q)
@@ -230,7 +238,7 @@ class HarmonicSGED(HarmonicDistribution):
         if not self._isfit():
             raise DiscreteDistributionError("The distribution is not fitted.")
 
-        return harmonics_valuation(
+        return HarmonicSGED._evaluate_params(
             self.mu, self.sigma, self.lamb, self.p, t=t, period=self.period
         )
 
@@ -265,7 +273,7 @@ class HarmonicSGED(HarmonicDistribution):
             `theta(t) = popt[0] + sum(popt[2*k-1] * cos(2 * pi * k * t) + popt[2*k] * sin(2 * pi * k * t) for k in range(n_harmonics))`
         """
         # Initial guess for the parameters (constant parameters, mu=0, sigma=1, lambda=0, p=2)
-        p0_const = (0, 1, 0, 2)
+        p0_const = (np.mean(x), np.std(x), 0, 2)
         p0 = tuple(np.concatenate([[p] + [0] * (2 * n_harmonics) for p in p0_const]))
 
         # Bounds for the parameters
@@ -293,29 +301,42 @@ class HarmonicSGED(HarmonicDistribution):
         period: float = 1.0,
     ) -> float:
         # Evaluate the parameters at each timepoint
-        mu, sigma, lamb, p = harmonics_valuation(
-            *HarmonicSGED._split_params(params, n_harmonics=n_harmonics),
-            t=t,
-            period=period
+        mu_h, sigma_h, lamb_h, p_h = HarmonicSGED._split_params(
+            params, n_harmonics=n_harmonics
         )
-        sigma = np.clip(sigma, HarmonicSGED.PARAMETER_TOL, None)
-        lamb = np.clip(
-            lamb, -1 + HarmonicSGED.PARAMETER_TOL, 1 - HarmonicSGED.PARAMETER_TOL
+        mu, sigma, lamb, p = HarmonicSGED._evaluate_params(
+            mu_h, sigma_h, lamb_h, p_h, t=t, period=period
         )
-        p = np.clip(p, HarmonicSGED.PARAMETER_TOL, None)
 
         # Compute the negative loglikelihood
         return -np.sum(
-            np.log(
-                sged(
-                    x,
-                    mu=mu,
-                    sigma=sigma,
-                    lamb=lamb,
-                    p=p,
-                )
+            log_sged(
+                x,
+                mu=mu,
+                sigma=sigma,
+                lamb=lamb,
+                p=p,
             )
         )
+
+    @staticmethod
+    def _evaluate_params(mu_h, sigma_h, lamb_h, p_h, t, period):
+        mu_t, sigma_t, lamb_t, p_t = harmonics_valuation(
+            mu_h, sigma_h, lamb_h, p_h, t=t, period=period
+        )
+
+        mu = mu_t
+        sigma = selu(sigma_t)
+        lamb = np.tanh(lamb_t)
+        p = selu(p_t)
+        # mu = mu_t
+        # sigma = np.clip(sigma_t, HarmonicSGED.PARAMETER_TOL, None)
+        # lamb = np.clip(
+        #     lamb_t, -1 + HarmonicSGED.PARAMETER_TOL, 1 - HarmonicSGED.PARAMETER_TOL
+        # )
+        # p = np.clip(p_t, HarmonicSGED.PARAMETER_TOL, None)
+
+        return mu, sigma, lamb, p
 
     @staticmethod
     def _split_params(params: np.ndarray, n_harmonics: int) -> tuple:
