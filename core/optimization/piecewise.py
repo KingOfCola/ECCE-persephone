@@ -40,7 +40,8 @@ def piecewise_linear(x, x0, y0, slope_start, slope_end, *bps):
     y_end = y0
 
     for i in range(len(bps) // 2):
-        (x_end, y_end) = bps[2 * i : 2 * i + 2]
+        (dx_end, y_end) = bps[2 * i : 2 * i + 2]
+        x_end = x_start + dx_end
         slope = (y_end - y_start) / (x_end - x_start)
         params.append((x_end, y_end, slope))
         ranges.append((x >= x_start) & (x < x_end))
@@ -60,19 +61,27 @@ def fit_piecewise_linear_breakpoints(x, y, n_breakpoints, sigma=None):
     y0 = y[np.arange(1, n_breakpoints + 1) * len(x) // (n_breakpoints + 1)]
 
     p0 = [x0[0], y0[0], 0, 0]
-    for xx, yy in zip(x0[1:], y0[1:]):
-        p0.extend([xx, yy])
+    for x_start, x_end, yy in zip(x0[:-1], x0[1:], y0[1:]):
+        p0.extend([x_end - x_start, yy])
 
-    popt, _ = curve_fit(piecewise_linear, x, y, p0=p0, sigma=sigma)
+    lower_bounds = [
+        -np.inf if i % 2 == 1 or i < 4 else 0
+        for i in range(4 + 2 * (n_breakpoints - 1))
+    ]
+    upper_bounds = [np.inf for _ in lower_bounds]
+
+    popt, _ = curve_fit(
+        piecewise_linear, x, y, p0=p0, sigma=sigma, bounds=(lower_bounds, upper_bounds)
+    )
     return popt, {"n_breakpoints": n_breakpoints}
 
 
 def piecewise_linear_breakpoints(params, xmin=None, xmax=None):
-    x = (
-        ([xmin] if xmin <= params[0] else [])
-        + [params[0], *params[4::2]]
-        + ([xmax] if xmax >= params[-2] else [])
-    )
+    start = [xmin] if xmin <= params[0] else []
+    end = [xmax] if xmax >= params[-2] else []
+    bps = list(np.cumsum(([params[0], *params[4::2]])))
+
+    x = start + bps + end
     return x, piecewise_linear(x, *params)
 
 
