@@ -16,7 +16,7 @@ from scipy import stats
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from core.distributions.sged import sged_cdf, sged, sged_pseudo_params
+from core.distributions.sged import sged_cdf, sged
 
 from scripts.tests.extremes.pextremes import LV
 
@@ -64,7 +64,7 @@ if __name__ == "__main__":
     LAMBDA = 0.0
     P = 2.0
 
-    V, M, G1P = sged_pseudo_params(mu=MU, sigma=SIGMA, lamb=LAMBDA, p=P)
+    V, M, G1P = SIGMA, 0.0, 0.0
     SIGMA_M = V * SIGMA * (1 - LAMBDA)
     SIGMA_P = V * SIGMA * (1 + LAMBDA)
     MODE = MU - M

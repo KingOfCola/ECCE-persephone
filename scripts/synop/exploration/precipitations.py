@@ -32,6 +32,12 @@ from plots.annual import (
     MONTHS_STARTS,
     MONTHS_LABELS_3,
     MONTHS_CENTER,
+    MONTHS_COLORS,
+    SEASONS_COLORS,
+    SEASONS_CENTER,
+    SEASONS_FULL,
+    SEASONS_3,
+    MONTHS_TO_SEASON,
     DOY_CMAP,
 )
 from utils.paths import data_dir, output
@@ -394,11 +400,13 @@ if __name__ == "__main__":
         precip_station = precip_all.loc[:, station].values
         days_of_year = precip_all["day_of_year"].values
         dates = precip_all["date"].values
+        years = precip_all["year"].values
         data_station, excess_station, excess_std_station, peaks_station = mean_excess(
             precip_station, min_value=MIN_PRECIPITATION
         )
         log_precip_station = np.log(data_station)
         days_of_year_station = days_of_year[peaks_station]
+        years_station = years[peaks_station]
         dates_station = dates[peaks_station]
 
         sged_harmonic = HarmonicSGED(n_harmonics=n_harm, period=DAYS_IN_YEAR)
@@ -520,4 +528,185 @@ if __name__ == "__main__":
         ax.set_ylim(0, max(return_period) * 1.1)
         fig.suptitle(f"Station {STATION_NAMES[station]} ({station})")
         fig.savefig(os.path.join(out_dir_station, "return_periods.png"))
+        plt.show()
+
+        # ================================================================================================
+        # Return periods by season
+        # ================================================================================================
+
+        y_max = 0
+
+        fig, axes = plt.subplots(2, 2, figsize=(8, 8), sharex=True, sharey=True)
+        for season, ax in enumerate(axes.flatten()):
+            alpha = 0.05
+            n_extremes_season = 10
+
+            return_periods_years_season = np.logspace(
+                -1, 3, 11
+            )  # Return periods in number of seasons
+            return_periods_days_season = return_periods_years_season * DAYS_IN_YEAR / 4
+            ts_season = (
+                return_periods_days_season * (len(data_station)) / len(precip_all)
+            )
+            us_low = stats.beta.ppf(alpha / 2, ts_season, 1)
+            us_high = stats.beta.ppf(1 - alpha / 2, ts_season, 1)
+            ts_low = 1 / (1 - us_low)
+            ts_high = 1 / (1 - us_high)
+
+            t_season = SEASONS_CENTER[season]
+
+            log_precip_season = sged_harmonic.ppf(t=t_season, q=1 - 1 / ts_season)
+            log_precip_low = sged_harmonic.ppf(t=t_season, q=1 - 1 / ts_low)
+            log_precip_high = sged_harmonic.ppf(t=t_season, q=1 - 1 / ts_high)
+
+            precip_season = np.exp(log_precip_season)
+            precip_low = np.exp(log_precip_low)
+            precip_high = np.exp(log_precip_high)
+
+            if season == 0:
+                where_season = (days_of_year_station < MONTHS_STARTS[2]) | (
+                    days_of_year_station >= MONTHS_STARTS[11]
+                )
+            else:
+                where_season = (
+                    days_of_year_station >= MONTHS_STARTS[2 + (season - 1) * 3]
+                ) & (days_of_year_station < MONTHS_STARTS[2 + season * 3])
+
+            precip_season_rnd = np.random.permutation(data_station[where_season])
+            n_extremes = int(np.floor(np.log2(len(precip_season_rnd))))
+
+            erp_extremes_years = np.zeros(n_extremes)
+            extremes_season = np.zeros(n_extremes)
+
+            for k in range(n_extremes):
+                extremes_season[k] = np.max(precip_season_rnd[2**k : 2 ** (k + 1)])
+                erp_extremes_years[k] = (
+                    (2**k) / len(precip_season_rnd) * len(precip_all) / DAYS_IN_YEAR
+                )
+
+            ax.fill_between(
+                return_periods_years_season,
+                precip_low,
+                precip_high,
+                alpha=0.3,
+                fc="C0",
+                label=f"{1 - alpha:.0%} prediction interval".replace("%", r"\%"),
+            )
+            ax.plot(
+                return_periods_years_season,
+                precip_season,
+                c="C0",
+                lw=2,
+                label=f"Return level (middle of season)",
+            )
+            ax.plot(
+                erp_extremes_years[-n_extremes_season:],
+                extremes_season[-n_extremes_season:],
+                "k+",
+                label="Empirical return levels",
+            )
+            ax.set_xscale("log")
+            ax.set_xticks([1, 10, 100, 1000])
+            ax.set_title(SEASONS_3[season])
+            ax.grid(ls=":", alpha=0.5)
+            y_max = max(y_max, precip_high[-1])
+
+        ax.set_ylim(0, y_max)
+        axes[0, 0].legend(loc="upper left")
+
+        fig.text(0.5, 0.04, "Return period (years)", ha="center")
+        fig.text(0.04, 0.5, "Precipitation (mm)", va="center", rotation="vertical")
+        fig.suptitle(f"Station {STATION_NAMES[station]} ({station})")
+        fig.tight_layout(rect=[0.05, 0.05, 0.95, 0.95])
+        fig.savefig(
+            os.path.join(out_dir_station, f"return_periods_{SEASONS_3[season]}.png")
+        )
+        plt.show()
+
+        # ================================================================================================
+        # Return periods by month
+        # ================================================================================================
+        y_max = 0
+        fig, axes = plt.subplots(4, 3, figsize=(10, 12), sharex=True, sharey=True)
+        for month, ax in enumerate(axes.flatten(), start=-1):
+            month = month % 12
+            alpha = 0.05
+            n_extremes_month = 10
+            month_duration = MONTHS_STARTS[month + 1] - MONTHS_STARTS[month]
+
+            return_periods_cycle_months = np.logspace(
+                -1, 3, 11
+            )  # Return periods in number of cycles (months)
+            return_periods_days_month = return_periods_cycle_months * month_duration
+            ts_month = return_periods_days_month * (len(data_station)) / len(precip_all)
+            us_low = stats.beta.ppf(alpha / 2, ts_month, 1)
+            us_high = stats.beta.ppf(1 - alpha / 2, ts_month, 1)
+            ts_low = 1 / (1 - us_low)
+            ts_high = 1 / (1 - us_high)
+
+            t_month = MONTHS_CENTER[month]
+
+            log_precip_month = sged_harmonic.ppf(t=t_month, q=1 - 1 / ts_month)
+            log_precip_low = sged_harmonic.ppf(t=t_month, q=1 - 1 / ts_low)
+            log_precip_high = sged_harmonic.ppf(t=t_month, q=1 - 1 / ts_high)
+
+            precip_month = np.exp(log_precip_month)
+            precip_low = np.exp(log_precip_low)
+            precip_high = np.exp(log_precip_high)
+
+            where_month = (days_of_year_station >= MONTHS_STARTS[month]) & (
+                days_of_year_station < MONTHS_STARTS[month + 1]
+            )
+
+            precip_month_rnd = np.random.permutation(data_station[where_month])
+            n_extremes = int(np.floor(np.log2(len(precip_month_rnd))))
+
+            erp_extremes_years = np.zeros(n_extremes)
+            extremes_month = np.zeros(n_extremes)
+
+            for k in range(n_extremes):
+                extremes_month[k] = np.max(precip_month_rnd[2**k : 2 ** (k + 1)])
+                erp_extremes_years[k] = (
+                    (2**k) / len(precip_month_rnd) * len(precip_all) / DAYS_IN_YEAR
+                )
+
+            ax.fill_between(
+                return_periods_cycle_months,
+                precip_low,
+                precip_high,
+                alpha=0.3,
+                fc="C0",
+                label=f"{1 - alpha:.0%} prediction interval".replace("%", r"\%"),
+            )
+            ax.plot(
+                return_periods_cycle_months,
+                precip_month,
+                c="C0",
+                label="Expected return level",
+            )
+            ax.plot(
+                erp_extremes_years[-n_extremes_month:],
+                extremes_month[-n_extremes_month:],
+                "k+",
+                label="Empirical quantile",
+            )
+            ax.set_title(MONTHS_LABELS_3[month])
+            y_max = max(y_max, precip_high[-1])
+
+        ax.set_xscale("log")
+        ax.set_xticks([1, 10, 100, 1000])
+        ax.set_ylim(0, y_max)
+
+        for season in range(4):
+            ax = axes[season, 0]
+            ax.set_ylabel(f"{SEASONS_3[season]}")
+
+        axes[0, 0].legend(loc="upper left")
+
+        fig.suptitle(f"Station {STATION_NAMES[station]} ({station})")
+        fig.text(0.5, 0.04, "Return period (years)", ha="center")
+        fig.text(0.04, 0.5, "Precipitation (mm)", va="center", rotation="vertical")
+        fig.tight_layout(rect=[0.05, 0.05, 0.95, 0.95])
+        fig.savefig(os.path.join(out_dir_station, "return_periods_by_month.png"))
+
         plt.show()
