@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 
+import numpy as np
+
 MONTHS_DURATIONS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 MONTHS_STARTS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365]
 MONTHS_CENTER = [15, 45, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349]
@@ -28,7 +30,8 @@ MONTHS_LABELS = {
 }
 
 SEASONS_FULL = ["Winter", "Spring", "Summer", "Autumn"]  # DJL, MAM, JJA, SON
-SEASONS_3 = ["DJL", "MAM", "JJA", "SON"]
+SEASONS_3 = ["DJF", "MAM", "JJA", "SON"]
+SEASONS_CENTER = [15, 105, 196, 288]
 MONTHS_TO_SEASON = [0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 0]
 
 SEASONS_COLORS = [
@@ -56,6 +59,52 @@ MONTHS_CMAP = ListedColormap(MONTHS_COLORS)
 DOY_CMAP = ListedColormap(
     [c for c, days in zip(MONTHS_COLORS, MONTHS_DURATIONS) for _ in range(days)]
 )
+
+
+@np.vectorize
+def doy_to_season(doy: int) -> int:
+    """Converts a day of the year to a season.
+
+    Parameters
+    ----------
+    doy : int
+        The day of the year to convert.
+
+    Returns
+    -------
+    season : int
+        The season corresponding to the day of the year.
+    """
+    # Seasons are defined as DJF, MAM, JJA, SON
+    # They all last 3 months, and the first season covers 2 months at the beginning of the year and 1 month at the end
+    for season in range(4):
+        if doy < MONTHS_STARTS[season * 3 + 2]:
+            return season
+
+    # Last month of the year is in winter
+    return 0
+
+
+@np.vectorize
+def doy_to_month(doy: int) -> int:
+    """Converts a day of the year to a month.
+
+    Parameters
+    ----------
+    doy : int
+        The day of the year to convert.
+
+    Returns
+    -------
+    month : int
+        The month corresponding to the day of the year.
+    """
+    for month, start in enumerate(MONTHS_STARTS):
+        if doy < start:
+            return month - 1
+
+    # Should not happen
+    return -1
 
 
 def month_xaxis(ax: plt.Axes, grid: bool | str = "season", labels: str = "three"):
