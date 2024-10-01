@@ -66,9 +66,8 @@ class Tree:
         """
         Check if a point is inside the tree.
         """
-        return (
-            point in self.rectangle
-            and (self.left is None or point in self.left)
+        return point in self.rectangle and (
+            (self.left is None or point in self.left)
             or (self.right is None or point in self.right)
         )
 
