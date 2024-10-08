@@ -327,6 +327,21 @@ cdef class MBST:
     def count_points(self, double[:] point):
         return count_points(self, point)
 
+    def count_points_below_multiple(self, double[:, :] points):
+        cdef int i, n_points
+        cdef double* point_ptr
+        counts = np.zeros((points.shape[0],), dtype=np.int64)
+
+        n_points = points.shape[0]
+        point_ptr = <double*>malloc(self.dimensions * sizeof(double))  # Allocate memory
+        
+        for i in range(n_points):
+            for j in range(self.dimensions):
+                point_ptr[j] = points[i, j]
+            counts[i] = count_points_node(self.tree, point_ptr, 0)
+
+        return counts
+
     def __dealloc__(self):
         if self.data_ptr:
             free(self.data_ptr)  # Free the allocated memory
