@@ -5,7 +5,7 @@ from utils.timer import Timer
 
 
 def count_points(data, bintree):
-    return np.array([mbst.count_points(bintree, point) for point in data])
+    return bintree.count_points_below_multiple(data)
 
 
 def count_points_naive(data, points):
@@ -104,7 +104,7 @@ for point in points:
     )
 
 
-data = np.random.rand(1_000_000, 5)
+data = np.random.rand(100_000, 5)
 with Timer("Constructing tree: %duration"):
     bintree = mbst.MBST(data, None)
 

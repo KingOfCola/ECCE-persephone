@@ -21,12 +21,7 @@ from scipy.signal import find_peaks
 from tqdm import tqdm
 from time import time as timer
 
-from core.distributions.sged import (
-    sged,
-    sged_cdf,
-    maximize_llhood_sged,
-    maximize_llhood_sged_harmonics,
-)
+from core.distributions.sged import HarmonicSGED
 from core.distributions.excess_likelihood import (
     pce,
     pcei,
@@ -51,7 +46,7 @@ if __name__ == "__main__":
     # ================================================================================================
     # Data loading
     # ================================================================================================
-    METRIC = "preliq_SUM"
+    METRIC = "t_AVG"
     temperatures_stations = pd.read_parquet(
         data_dir(rf"Meteo-France_SYNOP/Preprocessed/{METRIC}.parquet")
     ).reset_index()
@@ -148,15 +143,15 @@ if __name__ == "__main__":
     # ================================================================================================
     # SGED-fitting
     # ================================================================================================
-    popt_ = maximize_llhood_sged(detrended_temperatures)
-    popt = popt_["x"]
+    sged_stationary = HarmonicSGED(n_harmonics=0, period=1.0)
+    sged_stationary.fit(t=time, x=detrended_temperatures)
     t_min = np.min(detrended_temperatures)
     t_max = np.max(detrended_temperatures)
     temp = np.linspace(t_min, t_max, 100)
     binwidth = 0.5
     N = len(detrended_temperatures)
 
-    pdf = sged(temp, *popt)
+    pdf = sged_stationary.pdf(t=np.zeros_like(temp), x=temp)
     ci_inf = pdf - 1.96 * np.sqrt(pdf * (1 - pdf) / (N * binwidth))
     ci_sup = pdf + 1.96 * np.sqrt(pdf * (1 - pdf) / (N * binwidth))
 
@@ -166,7 +161,7 @@ if __name__ == "__main__":
         temp,
         pdf,
         c="r",
-        label=f"SGED($\\mu={popt[0]:.1f}$, $\\sigma={popt[1]:.1f}$, $\\lambda={popt[2]:.3f}$, $p={popt[3]:.3f}$)",
+        label=f"SGED($\\mu={sged_stationary.mu[0]:.1f}$, $\\sigma={sged_stationary.sigma[0]:.1f}$, $\\lambda={sged_stationary.lamb[0]:.3f}$, $p={sged_stationary.p[0]:.3f}$)",
     )
     ax.fill_between(temp, ci_inf, ci_sup, alpha=0.5, fc="r")
     ax.legend()
@@ -180,17 +175,13 @@ if __name__ == "__main__":
     # Fitting the SGED model with cyclic parameters
     # ---------------------------------------------
     # Fitting of the parameters
-    popt_ = maximize_llhood_sged_harmonics(
-        t=time, x=detrended_temperatures, n_harmonics=N_HARMONICS
-    )
-    popt = popt_["x"]
-    N = len(detrended_temperatures)
+    sged = HarmonicSGED(n_harmonics=N_HARMONICS, period=1.0)
+    sged.fit(t=time, x=temperatures)
+    N = len(temperatures)
 
     # Analysis of the fit in terms of cumulative distribution function
-    local_popt = harmonics_parameter_valuation(popt, time, N_HARMONICS, 4)
-    local_cdf = np.zeros(N)
-    for i in tqdm(range(N), total=N, smoothing=0):
-        local_cdf[i] = sged_cdf(detrended_temperatures[i], *local_popt[:, i])
+    params_time = sged.param_valuation(t=time)
+    local_cdf = sged.cdf(t=time, x=temperatures)
 
     # Projection of the SGED-fitted temperatures on a normal distribution with equivalent quantiles
     normal_projection = stats.norm.ppf(local_cdf)
@@ -238,21 +229,14 @@ if __name__ == "__main__":
     # ---------------------------------------------
     # Visualization of the parameters of the SGED model
     doy = np.linspace(0, 1, DAYS_IN_YEAR)
-    popt_season = np.copy(popt)
-    popt_season[0] += np.abs(harmonics)[0]
-    popt_season[1 : len(harmonics) * 2 - 1 : 2] += np.real(harmonics)[1:]
-    popt_season[2 : len(harmonics) * 2 : 2] += np.imag(harmonics)[1:]
-
-    popt_doy = harmonics_parameter_valuation(
-        popt_season, t=doy, n_harmonics=N_HARMONICS, n_params=4
-    )
+    params = sged.param_valuation(t=doy)
 
     fig, axes = plt.subplots(4, 1, figsize=(6, 10), sharex=True)
     fig.suptitle("Parameters of the SGED model")
     for i, (ax, parameter) in enumerate(
         zip(axes, ["$\mu$", "$\sigma$", "$\lambda$", "$p$"])
     ):
-        ax.plot(np.arange(DAYS_IN_YEAR), popt_doy[i, :])
+        ax.plot(np.arange(DAYS_IN_YEAR), params[i])
         ax.set_ylabel(parameter)
         month_xaxis(ax)
 
@@ -264,12 +248,6 @@ if __name__ == "__main__":
     # ---------------------------------------------
     fig, ax = plt.subplots(figsize=(7, 10))
     fig.suptitle("SGED-fitted temperatures per month")
-    popt_months = harmonics_parameter_valuation(
-        popt_season,
-        t=np.array(MONTHS_CENTER) / DAYS_IN_YEAR,
-        n_harmonics=N_HARMONICS,
-        n_params=4,
-    )
 
     season_colors = ["#70d6ff", "#90a955", "#ffd670", "#ff9770"]
     temp = np.linspace(-15, 45, 100)
@@ -278,8 +256,7 @@ if __name__ == "__main__":
         month_center = MONTHS_CENTER[month]
         month_label = MONTHS_LABELS_3[month]
 
-        popt_month = popt_months[:, month]
-        pdf_month = sged(temp, *popt_month)
+        pdf_month = sged.pdf(t=np.full_like(temp, month_center / DAYS_IN_YEAR), x=temp)
         pdf_month /= np.max(pdf_month)
 
         ax.fill_between(
@@ -303,6 +280,7 @@ if __name__ == "__main__":
     # Visualization of the return period of the SGED-fitted temperatures
     return_period_days = 1 / (1 - local_cdf)
     return_period_years = return_period_days / DAYS_IN_YEAR
+    return_period_seasons = return_period_days / DAYS_IN_YEAR * 4
 
     n_extremes = 5
     most_extremes = np.argsort(return_period_years)[-n_extremes:]
@@ -327,12 +305,12 @@ if __name__ == "__main__":
 
     # Temporal evolution of the return period
     fig, axes = plt.subplots(2, sharex=True, figsize=(10, 8))
-    axes[0].plot(time, return_period_years)
-    axes[0].scatter(time_of_occurence, return_period_years[most_extremes], c="r")
+    axes[0].plot(time, return_period_seasons, "ko", markersize=2)
+    axes[0].scatter(time_of_occurence, return_period_seasons[most_extremes], c="r")
     for i, txt in enumerate(date_of_occurence):
         axes[0].annotate(
             txt.strftime("%Y-%m-%d") + f"\n{temperatures_of_occurence[i]:.1f}°C",
-            (time_of_occurence[i], return_period_years[most_extremes[i]]),
+            (time_of_occurence[i], return_period_seasons[most_extremes[i]]),
             xytext=(5, 5),
             textcoords="offset points",
             arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.3"),
@@ -343,7 +321,7 @@ if __name__ == "__main__":
     axes[1].plot(time, temperatures)
     axes[1].plot(time, seasonality + trend, c="r")
 
-    axes[0].set_ylabel("Return period (years)")
+    axes[0].set_ylabel("Return period (seasons)")
     axes[1].set_ylabel("Temperature (°C)")
     axes[1].set_xlabel("Time (years)")
 
@@ -356,6 +334,56 @@ if __name__ == "__main__":
 
     fig.savefig(os.path.join(OUTPUT_DIR, "return-period-vs-time.png"))
     plt.show()
+
+    # Zooming on 2003
+    if True:
+        where_2003 = (time >= 2003) & (time < 2004)
+        return_period_seasons_2003 = return_period_seasons[where_2003]
+        time_2003 = (time[where_2003] - 2003) * DAYS_IN_YEAR
+        temperatures_2003 = temperatures[where_2003]
+
+        n_extremes = 5
+        most_extremes_2003 = np.argsort(return_period_seasons_2003)[-n_extremes:]
+        dates_of_occurrence_2003 = [
+            pd.to_datetime(
+                f"{years[where_2003][i]:.0f}-{days[where_2003][i]:.0f}", format="%Y-%j"
+            )
+            for i in most_extremes_2003
+        ]
+
+        # Temporal evolution of the return period
+        fig, axes = plt.subplots(2, sharex=True, figsize=(10, 8))
+        axes[0].plot(time_2003, return_period_seasons_2003, "ko", markersize=2)
+        axes[0].scatter(
+            time_2003[most_extremes_2003],
+            return_period_seasons_2003[most_extremes_2003],
+            c="r",
+        )
+        axes[0].set_ylim(0.1, None)
+        axes[0].set_yscale("log")
+
+        axes[1].plot(time_2003, temperatures[where_2003])
+        axes[1].plot(
+            time_2003[most_extremes_2003],
+            temperatures[where_2003][most_extremes_2003],
+            "ro",
+        )
+        axes[1].plot(time_2003, seasonality[where_2003] + trend[where_2003], c="r")
+
+        axes[0].set_ylabel("Return period (seasons)")
+        axes[1].set_ylabel("Temperature (°C)")
+        axes[1].set_xlabel("Time (years)")
+
+        axes[1].xaxis.set_major_locator(MultipleLocator(5))
+        axes[1].xaxis.set_minor_locator(MultipleLocator(1))
+        axes[0].grid(True, axis="y", which="major")
+        axes[0].grid(True, axis="y", which="minor", alpha=0.3)
+        axes[1].grid(True, axis="y", which="major")
+        month_xaxis(axes[0])
+        month_xaxis(axes[1])
+
+        fig.savefig(os.path.join(OUTPUT_DIR, "return-period-vs-time-2003.png"))
+        plt.show()
 
     # Return period of consecutive days
     # ---------------------------------------------

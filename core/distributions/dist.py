@@ -7,6 +7,7 @@
 @Contact :   urvan.christen@gmail.com
 @Desc    :   Abstract class for random variables
 """
+from copy import deepcopy
 import numpy as np
 
 from core.mathematics.inversion import pwl_inverse
@@ -262,6 +263,87 @@ class HarmonicDistribution:
         """
         return
 
+    def copy(self):
+        """Copy the distribution.
+
+        Returns
+        -------
+        HarmonicDistribution
+            The copy of the distribution.
+        """
+        return deepcopy(self)
+
+
+class TSTransform:
+    def __init__(self):
+        pass
+
+    def transform(self, t: np.ndarray, x: np.ndarray) -> np.ndarray:
+        """Transform the data.
+
+        Parameters
+        ----------
+        t : array-like
+            The timepoints of the data
+        x : array-like
+            The data to transform.
+
+        Returns
+        -------
+        array-like
+            The transformed data.
+        """
+        raise NotImplementedError("The method transform is not implemented.")
+
+    def inverse_transform(self, t: np.ndarray, y: np.ndarray) -> np.ndarray:
+        """Inverse transform the data.
+
+        Parameters
+        ----------
+        t : array-like
+            The timepoints of the data
+        y : array-like
+            The data to inverse transform.
+
+        Returns
+        -------
+        array-like
+            The inverse-transformed data.
+        """
+        raise NotImplementedError("The method transform is not implemented.")
+
+    def fit(self, t: np.ndarray, x: np.ndarray):
+        """Fit the transformation to the data.
+
+        Parameters
+        ----------
+        t : array-like
+            The timepoints of the data
+        x : array-like
+            The data to which the transformation is fitted.
+        """
+        raise NotImplementedError("The method fit is not implemented.")
+
+    def _isfit(self) -> bool:
+        """Check if the transformation is fitted.
+
+        Returns
+        -------
+        bool
+            True if the transformation is fitted, False otherwise.
+        """
+        raise NotImplementedError("The method isfit is not implemented.")
+
+    def copy(self):
+        """Copy the transformation.
+
+        Returns
+        -------
+        TSTransform
+            The copy of the transformation.
+        """
+        return deepcopy(self)
+
 
 class DiscreteDistributionError(Exception):
     """Exception raised for errors due to non continuous distributions.
@@ -273,5 +355,19 @@ class DiscreteDistributionError(Exception):
     """
 
     def __init__(self, message="The distribution is discrete."):
+        self.message = message
+        super().__init__(self.message)
+
+
+class DistributionNotFitError(Exception):
+    """Exception raised for errors due to non fitted distributions.
+
+    Attributes
+    ----------
+    message : str
+        Explanation of the error.
+    """
+
+    def __init__(self, message="The distribution is not fitted."):
         self.message = message
         super().__init__(self.message)

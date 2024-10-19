@@ -11,10 +11,11 @@
 import numpy as np
 from scipy.optimize import curve_fit
 from scipy import special
+from cythonized.cdf_of_mcdf import cdf_of_mcdf as cdf_of_mcdf_cy, pi as pi_cy
 
 
 @np.vectorize
-def L_int(c, d):
+def pi(c, d):
     """
     Approximates the reciprocal of the probability of isofrequency regions in the independent case.
 
@@ -30,40 +31,15 @@ def L_int(c, d):
     float
         The reciprocal of the probability of the isofrequency region for the given degree of freedom.
     """
-    if c == 0:
-        return 1.0
-    lc = -np.log(c)
-    f = lc**d / special.gamma(d + 1)
-    s = 0.0
-    while f > 1e-3 * s:
-        s += f
-        d += 1
-        f *= lc / d
-    return c * s
+    return pi_cy(c, d)
 
 
-@np.vectorize
-def correlated_ecdf(q: np.ndarray, rho: float, d: int = 2) -> np.ndarray:
-    return 1 - L_int(q, 1 + (d - 1) * (1 - rho))
+def cdf_of_mcdf(q: np.ndarray, dof: float) -> np.ndarray:
+    return cdf_of_mcdf_cy(q, dof)
 
 
-def __sigma(rho, d):
-    s = d
-    for i in range(1, d):
-        s += 2 * (d - i) * rho**i
-    return s
-
-
-def edof(rho, d):
-    return d**2 / __sigma(rho, d)
-
-
-def find_rho(q, cdf: np.ndarray, d: int = 2) -> float:
+def find_effective_dof(q, cdf: np.ndarray) -> float:
     """
-    Find the correlation coefficient of a Gaussian copula that best fits the empirical copula
+    Find the effective degrees of freedom of a Gaussian copula that best fits the empirical copula
     """
-
-    def aux(q, rho):
-        return correlated_ecdf(q, rho, d=d)
-
-    return curve_fit(aux, cdf, q, p0=(0.5,))[0][0]
+    return curve_fit(cdf_of_mcdf, cdf, q, p0=(2.0,))[0][0]

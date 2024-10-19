@@ -1,5 +1,8 @@
 import numpy as np
 from numba import njit, prange
+from scipy import stats
+
+from core.data.confidence_intervals import ConfidenceInterval
 
 
 @njit(parallel=True)
@@ -39,3 +42,67 @@ def ecdf_multivariate(x: np.ndarray, samples: np.ndarray) -> np.ndarray:
         fn_emp[i] = np.mean(all_below)
 
     return fn_emp
+
+
+def ecdf_ci_dvoretzky(
+    ecdf: np.ndarray, alpha: float = 0.05, decimation_factor: float = 1
+) -> ConfidenceInterval:
+    """
+    Compute the confidence interval of the empirical cumulative distribution function.
+    Using Dvoretzky-Kiefer-Wolfowitz inequality
+
+    Parameters
+    ----------
+    ecdf : np.ndarray
+        The empirical cumulative distribution function.
+    alpha : float
+        The confidence level.
+    decimation_factor : float
+        The decimation factor to use in the computation of the confidence interval.
+
+    Returns
+    -------
+    ConfidenceInterval
+        The confidence interval of the empirical cumulative distribution function.
+    """
+    n = len(ecdf)
+    n_eff = n / decimation_factor
+    epsilon = np.sqrt(np.log(2 / alpha) / (2 * n_eff))
+    ci = ConfidenceInterval(n)
+    ci.lower = np.maximum(ecdf - epsilon, 0)
+    ci.upper = np.minimum(ecdf + epsilon, 1)
+    ci.values = ecdf
+    return ci
+
+
+def ecdf_ci_binomial(
+    ecdf: np.ndarray, alpha: float = 0.05, decimation_factor: float = 1
+) -> ConfidenceInterval:
+    """
+    Compute the confidence interval of the empirical cumulative distribution function.
+    Using Dvoretzky-Kiefer-Wolfowitz inequality
+
+    Parameters
+    ----------
+    ecdf : np.ndarray
+        The empirical cumulative distribution function.
+    alpha : float
+        The confidence level.
+    decimation_factor : float
+        The decimation factor to use in the computation of the confidence interval.
+
+    Returns
+    -------
+    ConfidenceInterval
+        The confidence interval of the empirical cumulative distribution function.
+    """
+    n = len(ecdf)
+    n_eff = n / decimation_factor
+    alpha_all = alpha / n_eff
+    var = np.sqrt(ecdf * (1 - ecdf) / n_eff)
+    z_alpha = stats.norm.ppf(1 - alpha_all / 2)
+    ci = ConfidenceInterval(n)
+    ci.lower = np.maximum(ecdf - z_alpha * var, 0)
+    ci.upper = np.minimum(ecdf + z_alpha * var, 1)
+    ci.values = ecdf
+    return ci

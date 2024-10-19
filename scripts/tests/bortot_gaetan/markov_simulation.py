@@ -43,11 +43,11 @@ def glp_lambda(n, alpha, beta, rho):
         Random variables with autocorrelation rho and univariate marginal distribution Gamma(alpha, beta)
     """
     lambdas = np.zeros(n)
-    lambdas[0] = stats.gamma.rvs(alpha, scale=1 / beta)
-    p = stats.gamma.rvs(alpha, scale=1, size=n)
-    pi = stats.poisson.rvs(p * (1 - rho) / rho, size=n)
+    lambdas[0] = np.random.gamma(alpha, scale=1 / beta)
+    p = np.random.gamma(alpha, scale=1, size=n)
+    pi = np.random.poisson(p * (1 - rho) / rho, size=n)
     w = np.zeros(n)
-    w[pi > 0] = stats.gamma.rvs(pi[pi > 0], scale=rho / beta, size=np.sum(pi > 0))
+    w[pi > 0] = np.random.gamma(pi[pi > 0], scale=rho / beta, size=np.sum(pi > 0))
 
     for i in range(1, n):
         lambdas[i] = rho * lambdas[i - 1] + w[i]

@@ -13,7 +13,7 @@ import numpy as np
 
 class ConfidenceInterval:
     def __init__(self, shape: tuple):
-        self._shape = shape
+        self._shape = (shape,) if isinstance(shape, int) else shape
         self._values = np.zeros(shape)
         self._lower = np.zeros(shape)
         self._upper = np.zeros(shape)
