@@ -131,3 +131,7 @@ dmypy.json
 
 # Local config files
 assets/paths.json
+
+# Cython built files
+cythonized/**/*.c
+cythonized/**/*.html
