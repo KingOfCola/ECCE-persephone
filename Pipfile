@@ -23,6 +23,7 @@ geopandas = "1.0.1"
 sympy = "1.13.0"
 numba = "0.60.0"
 pyextremes = "2.3.2"
+Cython = "3.0.11"
 
 [dev-packages]
 flake8="6.0.0"

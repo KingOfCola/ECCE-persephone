@@ -6,7 +6,7 @@
         "depends": [],
         "name": "ar_processes",
         "sources": [
-            "C:\\Users\\urvan\\Documents\\ECCE\\ECCE-persephone\\cythonized\\ar_processes\\ar_processes.pyx"
+            "C:\\Users\\Urvan\\Documents\\ECCE\\code\\ecce-root\\cythonized\\ar_processes\\ar_processes.pyx"
         ]
     },
     "module_name": "ar_processes"

@@ -6,6 +6,9 @@
 @Version :   1.0
 @Contact :   urvan.christen@gmail.com
 @Desc    :   Setup script for Cython files
+    To compile the Cython files, run the following command:
+    cd cythonized
+    python tasks/setup.py build_ext --inplace
 """
 
 from setuptools import setup

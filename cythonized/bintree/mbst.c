@@ -6,7 +6,7 @@
         "depends": [],
         "name": "mbst",
         "sources": [
-            "C:\\Users\\urvan\\Documents\\ECCE\\ECCE-persephone\\cythonized\\bintree\\mbst.pyx"
+            "C:\\Users\\Urvan\\Documents\\ECCE\\code\\ecce-root\\cythonized\\bintree\\mbst.pyx"
         ]
     },
     "module_name": "mbst"

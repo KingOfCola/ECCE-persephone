@@ -9,9 +9,12 @@
 """
 
 from multiprocessing import Pool
+from matplotlib.ticker import MultipleLocator
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 from core.random.ar_processes import (
     garch_process,
@@ -98,14 +101,66 @@ class EDOFProtocol:
         ]
         return pd.DataFrame(data)
 
+    def plot_edof(self, x: str, hue: str, ax: plt.Axes = None, cmap: str = "Spectral"):
+        ax = ax or plt.gca()
+        if isinstance(cmap, str):
+            cmap = plt.get_cmap(cmap)
+
+        sns.lineplot(
+            data=self.edof_df(),
+            x=x,
+            y="edof",
+            hue=hue,
+            palette=cmap,
+            ax=ax,
+        )
+
+        ax.set_title("Effective DoF")
+        # ax.plot(rhos, 1 + (d-1) * (1 - rhos) ** 2 / (1 - rhos**2), c="k", label="Tentative")
+        ax.set_ylabel("DoF $\\delta$")
+        ax.yaxis.set_major_locator(MultipleLocator(5))
+        ax.yaxis.set_minor_locator(MultipleLocator(1))
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, None)
+        ax.grid(True, axis="both", which="major", ls=":", lw=0.7, alpha=1)
+        ax.grid(True, axis="both", which="minor", ls=":", lw=0.7, alpha=0.5)
+        ax.legend()
+
+        return ax
+
+    def plot_edof_normalized(
+        self, x: str, hue: str, ax: plt.Axes = None, cmap: str = "Spectral"
+    ):
+
+        ax = ax or plt.gca()
+        if isinstance(cmap, str):
+            cmap = plt.get_cmap(cmap)
+
+        df = self.edof_df()
+        df["edof_normalized"] = (df["edof"] - 1) / (df["w"] - 1)
+
+        sns.lineplot(
+            data=df,
+            x=x,
+            y="edof_normalized",
+            hue=hue,
+            palette=cmap,
+            ax=ax,
+        )
+        ax.set_title("Effective DoF")
+        ax.set_ylim(0, 1)
+        # ax.plot(rhos, 1 + (d-1) * (1 - rhos) ** 2 / (1 - rhos**2), c="k", label="Tentative")
+        ax.set_ylabel(r"Normalized DoF $\left(\frac{\delta - 1}{w - 1}\right)$")
+        ax.legend()
+        ax.grid(True, axis="both", which="major", ls=":", lw=0.7, alpha=1)
+        return ax
+
 
 def garch_process_rho(n, rho, w):
     return garch_process(n, np.array([0.1, rho]), np.array([0.99 - rho]), w)
 
 
 if __name__ == "__main__":
-    import seaborn as sns
-    import matplotlib.pyplot as plt
     from utils.paths import output
     import os
 
@@ -151,17 +206,20 @@ if __name__ == "__main__":
     protocol.run_simulations()
     d = protocol.edof_df()
 
-    sns.lineplot(d, x="rho", y="edof", hue="w", palette="Spectral")
+    fig, ax = plt.subplots()
+    ax = protocol.plot_edof("rho", "w", ax=ax, cmap="Spectral")
+    fig.tight_layout()
+    ax.set_xlim(0, 1)
+    ax.set_xlabel("Correlation $\\rho$")
+    fig.savefig(os.path.join(OUT_DIR, "effective_dof.png"), dpi=300)
     plt.show()
 
-    sns.lineplot(d, x="rho", y="bias", hue="w", palette="Spectral")
-    plt.show()
-
-    sns.lineplot(d, x="rho", y="var", hue="w", palette="Spectral")
+    fig, ax = plt.subplots()
+    ax = protocol.plot_edof_normalized("rho", "w", ax=ax, cmap="Spectral")
+    ax.set_xlim(0, 1)
+    ax.set_xlabel("Correlation $\\rho$")
+    fig.tight_layout()
+    fig.savefig(os.path.join(OUT_DIR, "effective_dof_normalized.png"), dpi=300)
     plt.show()
 
     d.to_csv(os.path.join(OUT_DIR, "edof.csv"), index=False)
-
-    d["corrected_edof"] = (d["edof"] - 1) / (d["w"] - 1)
-    sns.lineplot(d, x="rho", y="corrected_edof", hue="w", palette="Spectral")
-    plt.show()
