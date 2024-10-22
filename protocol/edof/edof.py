@@ -17,8 +17,11 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 from core.random.ar_processes import (
+    decimated_gaussian,
+    decimated_gaussian_interp,
     garch_process,
     gaussian_ar_process,
+    independent_process,
     warren_process,
     gaver_lewis_process,
 )
@@ -164,62 +167,109 @@ if __name__ == "__main__":
     from utils.paths import output
     import os
 
-    METHOD = "Warren"
-    OUT_DIR = output(f"Simulations/EDOF/{METHOD}")
-    os.makedirs(OUT_DIR, exist_ok=True)
-
-    process_generators = {
-        "Gaussian_AR1": gaussian_ar_process,
-        "GARCH": garch_process_rho,
-        "Warren": warren_process,
-        "Gaver_Lewis": gaver_lewis_process,
-    }
-    METHODS_GAMMA = ["Gaver_Lewis", "Warren"]
-
-    n = 10_000
+    n = 30_000
     n_sim = 10
-    n_rhos = 31
-    n_ws = 11
+    w = np.arange(2, 11)
+    rho = np.concatenate([1 - np.geomspace(0.01, 1.0, 30, endpoint=False), [0.0]])
+    tau = np.linspace(1, 11, 21)
+    alpha = [1]
+    beta = [2]
 
-    rhos = np.concatenate(
-        [1 - np.geomspace(0.01, 1.0, n_rhos - 1, endpoint=False), [0.0]]
-    )
-    # rhos = 1 - np.linspace(0.01, 1.0, n_rhos, endpoint=True)
-    ws = np.arange(2, n_ws + 2)
+    PARAMETERS_LEGENDS = {
+        "rho": "Correlation $\\rho$",
+        "tau": "Decimation factor $\\tau$",
+        "trial": "Trial",
+        "w": "Dimension $w$",
+        "alpha": "Alpha $\\alpha$",
+        "beta": "Beta $\\beta$",
+        "edof": "Effective DoF $\\delta$",
+    }
 
-    xx = warren_process(n, rho=0.9, alpha=1, beta=1, w=3)
+    default_args = ([n],)
+    process_generators = {
+        "Gaussian_AR1": {
+            "process": gaussian_ar_process,
+            "args": default_args,
+            "kwargs": {"rho": rho, "w": w},
+            "parameter": "rho",
+        },
+        "GARCH": {
+            "process": garch_process_rho,
+            "args": default_args,
+            "kwargs": {"rho": rho, "w": w},
+            "parameter": "rho",
+        },
+        "Warren": {
+            "process": warren_process,
+            "args": default_args,
+            "kwargs": {"rho": rho, "w": w, "alpha": alpha, "beta": beta},
+            "parameter": "rho",
+        },
+        "Gaver_Lewis": {
+            "process": gaver_lewis_process,
+            "args": default_args,
+            "kwargs": {"rho": rho, "w": w, "alpha": alpha, "beta": beta},
+            "parameter": "rho",
+        },
+        "Decimated_Gaussian": {
+            "process": decimated_gaussian,
+            "args": default_args,
+            "kwargs": {"tau": tau, "w": w},
+            "parameter": "tau",
+        },
+        "Decimated_Gaussian_Interpolation": {
+            "process": decimated_gaussian_interp,
+            "args": default_args,
+            "kwargs": {"tau": tau, "w": w},
+            "parameter": "tau",
+        },
+        "Independent": {
+            "process": independent_process,
+            "args": default_args,
+            "kwargs": {"w": w},
+            "parameter": "trial",
+        },
+    }
 
-    process_generator = process_generators[METHOD]
-    process_args = ([n],)
-    process_kwargs = {"rho": rhos, "w": ws}
-    if METHOD in METHODS_GAMMA:
-        process_kwargs["alpha"] = [1]
-        process_kwargs["beta"] = [2]
+    for METHOD in list(process_generators.keys())[::-1]:
+        print(f"Running {METHOD}")
+        OUT_DIR = output(f"Simulations/EDOF/{METHOD}")
+        os.makedirs(OUT_DIR, exist_ok=True)
 
-    protocol = EDOFProtocol(
-        process_generator=process_generator,
-        process_args=process_args,
-        process_kwargs=process_kwargs,
-        n_sim=n_sim,
-    )
+        process_settings = process_generators[METHOD]
+        process_generator = process_settings["process"]
+        process_args = process_settings["args"]
+        process_kwargs = process_settings["kwargs"]
+        process_parameter = process_settings["parameter"]
 
-    protocol.run_simulations()
-    d = protocol.edof_df()
+        protocol = EDOFProtocol(
+            process_generator=process_generator,
+            process_args=process_args,
+            process_kwargs=process_kwargs,
+            n_sim=n_sim,
+        )
 
-    fig, ax = plt.subplots()
-    ax = protocol.plot_edof("rho", "w", ax=ax, cmap="Spectral")
-    fig.tight_layout()
-    ax.set_xlim(0, 1)
-    ax.set_xlabel("Correlation $\\rho$")
-    fig.savefig(os.path.join(OUT_DIR, "effective_dof.png"), dpi=300)
-    plt.show()
+        protocol.run_simulations()
+        d = protocol.edof_df()
+        p_min = d[process_parameter].min()
+        p_max = d[process_parameter].max()
 
-    fig, ax = plt.subplots()
-    ax = protocol.plot_edof_normalized("rho", "w", ax=ax, cmap="Spectral")
-    ax.set_xlim(0, 1)
-    ax.set_xlabel("Correlation $\\rho$")
-    fig.tight_layout()
-    fig.savefig(os.path.join(OUT_DIR, "effective_dof_normalized.png"), dpi=300)
-    plt.show()
+        fig, ax = plt.subplots()
+        ax = protocol.plot_edof(process_parameter, "w", ax=ax, cmap="Spectral")
+        fig.tight_layout()
+        ax.set_xlim(p_min, p_max)
+        ax.set_xlabel(PARAMETERS_LEGENDS.get(process_parameter, process_parameter))
+        fig.savefig(os.path.join(OUT_DIR, "effective_dof.png"), dpi=300)
+        plt.show()
 
-    d.to_csv(os.path.join(OUT_DIR, "edof.csv"), index=False)
+        fig, ax = plt.subplots()
+        ax = protocol.plot_edof_normalized(
+            process_parameter, "w", ax=ax, cmap="Spectral"
+        )
+        ax.set_xlim(p_min, p_max)
+        ax.set_xlabel(PARAMETERS_LEGENDS.get(process_parameter, process_parameter))
+        fig.tight_layout()
+        fig.savefig(os.path.join(OUT_DIR, "effective_dof_normalized.png"), dpi=300)
+        plt.show()
+
+        d.to_csv(os.path.join(OUT_DIR, "edof.csv"), index=False)
