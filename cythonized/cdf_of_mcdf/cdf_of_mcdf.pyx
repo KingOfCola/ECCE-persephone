@@ -18,18 +18,20 @@ cpdef pi(double c, double d):
         The reciprocal of the probability of the isofrequency region for the given degree of freedom.
     """
 
-    cdef double f, lc, s
+    cdef double f, lc, s, fmax
 
     if c == 0.0:
         return 1.0
     lc = -log(c)
     f = lc**d / tgamma(d + 1)
     s = 0.0
+    fmax = f
 
-    while f > 1e-4 * s:
+    while f > 1e-4 * fmax:
         s += f
         d += 1
         f *= lc / d
+        fmax = max(fmax, f)
     return c * s
 
 

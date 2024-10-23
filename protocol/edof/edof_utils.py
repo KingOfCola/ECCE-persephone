@@ -47,7 +47,11 @@ def compute_edof(
     process_generator: callable, process_args: list, process_kwargs: dict, auc=True
 ) -> float:
     # return 1
-    X = __generate_safe(process_generator, process_args, process_kwargs)
+    try:
+        X = __generate_safe(process_generator, process_args, process_kwargs)
+    except ValueError:
+        return np.nan, np.nan, np.nan, np.array([])
+
     n = X.shape[0]
     w = X.shape[1]
 
@@ -59,4 +63,4 @@ def compute_edof(
         return dof_emp
 
     bias, var = bv_cdf_of_mcdf(q, pi_emp_sorted, dof_emp)
-    return dof_emp, bias, var
+    return dof_emp, bias, var, pi_emp_sorted

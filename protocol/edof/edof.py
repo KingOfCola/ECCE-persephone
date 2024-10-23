@@ -15,7 +15,9 @@ import pandas as pd
 from tqdm import tqdm
 import seaborn as sns
 import matplotlib.pyplot as plt
+import pickle
 
+from core.optimization.mecdf import cdf_of_mcdf
 from core.random.ar_processes import (
     decimated_gaussian,
     decimated_gaussian_interp,
@@ -40,6 +42,7 @@ class EDOFProtocol:
         self.__edof = np.full((self.n_params() * n_sim), np.nan)
         self.__bias = np.full((self.n_params() * n_sim), np.nan)
         self.__var = np.full((self.n_params() * n_sim), np.nan)
+        self.__pi_emp = [[] for _ in range(self.n_params() * n_sim)]
 
     def params_generator(self):
         for arg in product_list(*self.process_args):
@@ -67,6 +70,7 @@ class EDOFProtocol:
             self.__edof = np.array([x[0] for x in edof])
             self.__bias = np.array([x[1] for x in edof])
             self.__var = np.array([x[2] for x in edof])
+            self.__pi_emp = [x[3] for x in edof]
 
     def n_params(self):
         """
@@ -158,6 +162,84 @@ class EDOFProtocol:
         ax.grid(True, axis="both", which="major", ls=":", lw=0.7, alpha=1)
         return ax
 
+    def plot_pi_emp(
+        self,
+        by: str,
+        ax: plt.Axes = None,
+        where: list = None,
+        cmap: str = "Spectral",
+        wmax: int = 10,
+        lim: float = 1e-4,
+    ):
+        ax = plt.gca() if ax is None else ax
+        df = self.edof_df()
+        if where is not None:
+            for k, v in where:
+                df = df[df[k] == v]
+        pi_emps = df.groupby(by).apply(average_pi_emp, self.__pi_emp)
+        n = len(pi_emps)
+
+        if isinstance(cmap, str):
+            cmap = plt.get_cmap(cmap)
+
+        label_mask = np.zeros(n, dtype=bool)
+        label_mask[np.linspace(0, n - 1, 5, dtype=int)] = True
+
+        for i, (idx, pi_emp) in enumerate(pi_emps.items()):
+            if pi_emp is None:
+                continue
+            q = np.arange(1, pi_emp.shape[0] + 1) / (pi_emp.shape[0] + 1)
+            ax.plot(
+                pi_emp,
+                q,
+                c=cmap(i / n),
+                lw=1.0,
+                label=f"{by}={idx:.2f}" if label_mask[i] else None,
+            )
+
+        xmax = -np.log(lim)
+        q = 1 / (1 + np.exp(-np.linspace(-xmax, xmax, 1000)))
+        for i in range(1, wmax + 1):
+            y = cdf_of_mcdf(q, i)
+            y0 = cdf_of_mcdf(np.array([lim]), i)[0]
+            ax.plot(
+                q,
+                y,
+                c="k",
+                ls="--",
+                lw=0.7,
+                label="Independent dimensions" if i == 1 else None,
+            )
+            ax.annotate(
+                f"$\delta={i}$",
+                (lim, y0),
+                # (0, -5),
+                # textcoords="offset points",
+                ha="left",
+                va="top",
+            )
+        ax.set_xscale("logit")
+        ax.set_yscale("logit")
+        ax.grid(True, axis="both", which="major", ls=":", lw=0.7, alpha=1)
+        ax.grid(True, axis="both", which="minor", ls=":", lw=0.7, alpha=0.5)
+        ax.set_xlim(lim, 1 - lim)
+        ax.set_ylim(lim * 0.5, 1 - lim)
+        ax.set(xlabel="$t$", ylabel=r"$\mathbb{P}(F_{\mathbf{X}}(\mathbf{X}) \leq t)$")
+        ax.legend(loc="lower right")
+
+
+def average_pi_emp(sub_df, data):
+    pi_emps = []
+    for id, row in sub_df.iterrows():
+        pi_emp = data[id]
+        if pi_emp is not None:
+            pi_emps.append(pi_emp)
+
+    if len(pi_emps) == 0:
+        return None
+
+    return np.mean(pi_emps, axis=0)
+
 
 def garch_process_rho(n, rho, w):
     return garch_process(n, np.array([0.1, rho]), np.array([0.99 - rho]), w)
@@ -169,8 +251,12 @@ if __name__ == "__main__":
 
     n = 30_000
     n_sim = 10
+    w0 = 8
     w = np.arange(2, 11)
-    rho = np.concatenate([1 - np.geomspace(0.01, 1.0, 30, endpoint=False), [0.0]])
+    # rho = np.concatenate(
+    #     [np.linspace(0, 0.9, 10), 1 - np.geomspace(0.01, 0.1, 10)[::-1], [1.0]]
+    # )
+    rho = np.linspace(1e-4, 1 - 1e-4, 11)
     tau = np.linspace(1, 11, 21)
     alpha = [1]
     beta = [2]
@@ -272,4 +358,14 @@ if __name__ == "__main__":
         fig.savefig(os.path.join(OUT_DIR, "effective_dof_normalized.png"), dpi=300)
         plt.show()
 
+        fig, ax = plt.subplots()
+        ax = protocol.plot_pi_emp(
+            process_parameter, where=[("w", w0)], ax=ax, wmax=w0
+        )
+        fig.tight_layout()
+        fig.savefig(os.path.join(OUT_DIR, "pi_emp.png"), dpi=300)
+        plt.show()
+
         d.to_csv(os.path.join(OUT_DIR, "edof.csv"), index=False)
+        with open(os.path.join(OUT_DIR, "protocol.pkl"), "wb") as f:
+            pickle.dump(protocol, f)
