@@ -16,7 +16,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from core.data._utils import process_data
-from core.distributions.dist import HarmonicDistribution
+from core.distributions.base.dist import HarmonicDistribution
 from utils.constants import DAYS_IN_YEAR
 
 

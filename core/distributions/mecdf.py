@@ -1,4 +1,4 @@
-from core.distributions.dist import Distribution
+from core.distributions.base.dist import Distribution
 
 from cythonized import mbst
 import numpy as np

@@ -10,7 +10,7 @@
 
 import numpy as np
 
-from core.distributions.dist import TSTransform, DistributionNotFitError
+from core.distributions.base.dist import TSTransform, DistributionNotFitError
 from core.optimization.interpolation import spline_interpolation
 
 

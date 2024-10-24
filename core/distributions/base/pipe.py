@@ -8,7 +8,7 @@
 @Desc    :   Pipe class
 """
 
-from core.distributions.dist import (
+from core.distributions.base.dist import (
     HarmonicDistribution,
     TSTransform,
     DistributionNotFitError,

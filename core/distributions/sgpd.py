@@ -2,7 +2,7 @@ import numpy as np
 from scipy import stats
 from scipy.optimize import minimize
 
-from core.distributions.dist import Distribution
+from core.distributions.base.dist import Distribution
 from core.distributions.fit_cdf import fit_cdf, _get_ppf_function, distance_quantile
 from core.mathematics.functions import sigmoid, gpd_cdf, gpd_pdf
 

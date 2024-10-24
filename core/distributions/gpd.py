@@ -12,7 +12,7 @@
 import numpy as np
 from scipy.optimize import minimize
 
-from core.distributions.dist import Distribution, DiscreteDistributionError
+from core.distributions.base.dist import Distribution, DiscreteDistributionError
 from scipy import stats
 
 

@@ -14,10 +14,10 @@ import os
 
 from core.data.ts_data import TSData, HarmonicTSData
 from core.data.labels import Label
-from core.distributions.dist import HarmonicDistribution
+from core.distributions.base.dist import HarmonicDistribution
 from core.distributions.trend import TrendRemoval
 from core.distributions.sged import HarmonicSGED
-from core.distributions.pipe import Pipe
+from core.distributions.base.pipe import Pipe
 from utils.paths import data_dir
 
 

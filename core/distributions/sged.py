@@ -12,7 +12,7 @@
 import numpy as np
 from scipy.optimize import minimize
 
-from core.distributions.dist import HarmonicDistribution, DiscreteDistributionError
+from core.distributions.base.dist import HarmonicDistribution, DiscreteDistributionError
 from core.mathematics.harmonics import harmonics_valuation
 from core.mathematics.functions import (
     log_sged,
