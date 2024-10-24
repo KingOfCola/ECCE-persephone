@@ -1,25 +1,25 @@
 # -*-coding:utf-8 -*-
 """
-@File    :   model_mixture.py
-@Time    :   2024/10/24 13:58:06
+@File    :   constant.py
+@Time    :   2024/10/24 14:35:59
 @Author  :   Urvan Christen
 @Version :   1.0
 @Contact :   urvan.christen@gmail.com
-@Desc    :   Mixture by model choice
+@Desc    :   Constant distribution
 """
+
 import numpy as np
 from core.distributions.base.dist import (
+    Distribution,
     HarmonicDistribution,
-    TSTransform,
     DistributionNotFitError,
 )
 
 
-class HarmonicModelMixture(HarmonicDistribution):
-    def __init__(self, period: float):
-        super().__init__(period=period)
-        self._models: list[HarmonicDistribution] = []
-        self._weights: HarmonicDistribution = None
+class HarmonicConstant(HarmonicDistribution):
+    def __init__(self, period: float = 1.0, value: float = None):
+        super().__init__(period)
+        self._value = value
 
     def cdf(self, t: float, x: float) -> float:
         """Cumulative distribution function.
@@ -37,11 +37,8 @@ class HarmonicModelMixture(HarmonicDistribution):
             The value of the CDF at x.
         """
         if not self._isfit():
-            raise DistributionNotFitError("Model mixture not fitted")
-        ps = np.zeros((len(self._models),) + t.shape)
-        for k, model in enumerate(self._models):
-            ps[k] = model.cdf(t, x) * self._weights.cdf(t, k)
-        return ps.sum(axis=0)
+            raise DistributionNotFitError("Constant distribution not fitted")
+        return np.where(x >= self._value, 1.0, 0.0)
 
     def pdf(self, t: float, x: float) -> float:
         """Probability density function.
@@ -56,14 +53,11 @@ class HarmonicModelMixture(HarmonicDistribution):
         Returns
         -------
         float-like
-            The value of the PDF at x.
+            The value of the PDF at x. Those are only ones for compatibility
         """
         if not self._isfit():
-            raise DistributionNotFitError("Model mixture not fitted")
-        ps = np.zeros((len(self._models),) + t.shape)
-        for k, model in enumerate(self._models):
-            ps[k] = model.pdf(t, x) * self._weights.pdf(t, k)
-        return ps.sum(axis=0)
+            raise DistributionNotFitError("Constant distribution not fitted")
+        return np.ones_like(x)
 
     def ppf(self, t: float, q: float) -> float:
         """Percent point function.
@@ -80,7 +74,9 @@ class HarmonicModelMixture(HarmonicDistribution):
         float-like
             The value of the ppf at q.
         """
-        raise NotImplementedError("The method ppf is not implemented.")
+        if not self._isfit():
+            raise DistributionNotFitError("Constant distribution not fitted")
+        return np.full_like(q, self._value)
 
     def rvs(self, t: list) -> list:
         """Generate random variates.
@@ -96,9 +92,8 @@ class HarmonicModelMixture(HarmonicDistribution):
             The random variates.
         """
         if not self._isfit():
-            raise DistributionNotFitError("Model mixture not fitted")
-        ks = self._weights.rvs(t)
-        return [self._models[k].rvs(t_) for k, t_ in zip(ks, t)]
+            raise DistributionNotFitError("Constant distribution not fitted")
+        return np.full_like(t, self._value)
 
     def fit(self, t: list, x: list):
         """Fit the distribution to the data.
@@ -110,7 +105,7 @@ class HarmonicModelMixture(HarmonicDistribution):
         x : array-like
             The data to which the distribution is fitted.
         """
-        raise NotImplementedError("The method fit is not implemented.")
+        self.value = np.nanmean(x)
 
     def param_valuation(self, t: float) -> list:
         """Compute the actual value of the parameters for each timepoint.
@@ -125,9 +120,7 @@ class HarmonicModelMixture(HarmonicDistribution):
         array-like
             Actual values of the parameters for each timepoint.
         """
-        if not self._isfit():
-            raise DistributionNotFitError("Model mixture not fitted")
-        return None
+        return np.full_like(t, self._value)
 
     def _isfit(self) -> bool:
         """Check if the distribution is fitted.
@@ -137,7 +130,4 @@ class HarmonicModelMixture(HarmonicDistribution):
         bool
             True if the distribution is fitted, False otherwise.
         """
-        return (
-            all([model._isfit() for model in self._models])
-            and self._weights is not None
-        )
+        return self._value is not None
