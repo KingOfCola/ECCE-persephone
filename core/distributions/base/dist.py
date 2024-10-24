@@ -252,8 +252,7 @@ class HarmonicDistribution:
                 f"The number of elements in {name} should be odd to correspond to harmonics parametrization."
             )
 
-    @classmethod
-    def _check_values_validity(cls, x: float):
+    def _check_values_validity(self, x: float):
         """Check if the values are valid for the distribution.
 
         Parameters

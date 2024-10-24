@@ -454,3 +454,19 @@ def gpd_pdf(x: float, ksi: float):
         if ksi < 0.0 and x > -1 / ksi:
             return 0.0
         return (1 + ksi * x) ** (-1 / ksi - 1)
+
+
+def narctan(x: np.ndarray) -> np.ndarray:
+    """Normalized arc tangent function.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Input values.
+
+    Returns
+    -------
+    np.ndarray
+        Arc tangent values normalized between 0 and 1.
+    """
+    return np.arctan(x) / np.pi + 0.5

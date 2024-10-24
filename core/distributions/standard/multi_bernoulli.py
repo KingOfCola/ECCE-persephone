@@ -1,11 +1,11 @@
 # -*-coding:utf-8 -*-
 """
-@File    :   bernoulli.py
-@Time    :   2024/08/16 11:11:48
+@File    :   multi_bernoulli.py
+@Time    :   2024/10/24 11:11:48
 @Author  :   Urvan Christen
 @Version :   1.0
 @Contact :   urvan.christen@gmail.com
-@Desc    :   Bernoulli distribution helper functions
+@Desc    :   Multi-Level Bernoulli distribution helper functions
 """
 
 import numpy as np
@@ -13,15 +13,16 @@ from scipy.optimize import minimize
 
 from core.distributions.base.dist import HarmonicDistribution, DiscreteDistributionError
 
-from core.mathematics.functions import sigmoid
+from core.mathematics.functions import selu, sigmoid, narctan
 from core.mathematics.harmonics import harmonics_valuation
 
 
-class HarmonicBernoulli(HarmonicDistribution):
+class HarmonicMultiBernoulli(HarmonicDistribution):
     def __init__(
         self,
         kernel: str = "sigmoid",
-        mu: float | None = None,
+        mus: float | None = None,
+        n_levels: int | None = None,
         n_harmonics: int | None = None,
         period: float = 1.0,
     ):
@@ -46,15 +47,22 @@ class HarmonicBernoulli(HarmonicDistribution):
         self.kernel = kernel
         self.fit_summary = None
 
-        if mu is not None:
-            if n_harmonics is not None:
+        if mus is not None:
+            if n_harmonics is not None or n_levels is not None:
                 raise ValueError(
-                    "The number of harmonics can't be specified if mu is provided."
+                    "The number of harmonics and levels can't be specified if mus is provided."
                 )
-            self.mu = mu
+            self.mus = mus
+            self.n_harmonics = (mus.shape[1] - 1) // 2
+            self.n_levels = mus.shape[0]
         else:
+            if n_harmonics is None or n_levels is None:
+                raise ValueError(
+                    "The number of harmonics and levels should be specified if mus is not provided."
+                )
             self.n_harmonics = n_harmonics
-            self.mu = None
+            self.n_levels = n_levels
+            self.mus = None
 
     @property
     def kernel(self):
@@ -64,7 +72,7 @@ class HarmonicBernoulli(HarmonicDistribution):
     def kernel(self, value):
         match value:
             case "arctan":
-                self._kernel_func = HarmonicBernoulli.narctan
+                self._kernel_func = narctan
             case "sigmoid":
                 self._kernel_func = sigmoid
             case _:
@@ -73,18 +81,21 @@ class HarmonicBernoulli(HarmonicDistribution):
         self._kernel = value
 
     @property
-    def mu(self):
-        return self._mu
+    def mus(self):
+        return self._mus
 
-    @mu.setter
-    def mu(self, value):
+    @mus.setter
+    def mus(self, value):
         if value is None:
-            self._mu = None
+            self._mus = None
             return
 
-        HarmonicBernoulli._check_harmonics_shape(value)
-        self._mu = np.array(value)
-        self.n_harmonics = (len(value) - 1) // 2
+        if value.ndim != 2:
+            raise ValueError("The mus should be a 2D array.")
+        HarmonicMultiBernoulli._check_harmonics_shape(value[0, :])
+        self._mus = np.array(value)
+        self.n_harmonics = (value.shape[1] - 1) // 2
+        self.n_levels = value.shape[0]
 
     def cdf(self, t: float, x: float) -> float:
         """Cumulative distribution function.
@@ -101,11 +112,11 @@ class HarmonicBernoulli(HarmonicDistribution):
         float-like
             The value of the CDF at x.
         """
-        x = np.array(x)
-        self._check_values_validity(x)
-        log_p = harmonics_valuation(self.mu, t=t, period=self.period)
-        p = self._kernel_func(log_p)
-        return (1 - p) + p * (x == 1)
+        x = np.clip(np.int_(np.floor(np.array(x))), -1, self.n_levels)
+        p = self.param_valuation(t)
+        cp = np.cumsum(p, axis=0)
+        cp = np.concatenate((np.zeros((1, len(t))), cp), axis=0)
+        return cp[x + 1, np.arange(len(t))]
 
     def pdf(self, t: float, x: float) -> float:
         """Probability density function.
@@ -124,9 +135,8 @@ class HarmonicBernoulli(HarmonicDistribution):
         """
         x = np.array(x)
         self._check_values_validity(x)
-        log_p = harmonics_valuation(self.mu, t=t, period=self.period)
-        p = self._kernel_func(log_p)
-        return p * (x == 1) + (1 - p) * (x == 0)
+        p = self.param_valuation(t)
+        return p[x, np.arange(len(t))]
 
     def ppf(self, t: float, q: float) -> float:
         """Percent point function.
@@ -160,9 +170,9 @@ class HarmonicBernoulli(HarmonicDistribution):
         float-like
             The random variate generated.
         """
-        log_p = harmonics_valuation(self.mu, t=t, period=self.period)
-        p = self._kernel_func(log_p)
-        return np.random.rand(*t.shape) < p
+        p = self.param_valuation(t)
+        cp = np.cumsum(p, axis=0)
+        return (np.random.rand(1, *t.shape) < cp).sum(axis=0)
 
     def fit(self, t: float, x: float):
         """Fit the distribution to the data.
@@ -174,11 +184,12 @@ class HarmonicBernoulli(HarmonicDistribution):
         data : float-like
             Data to fit the distribution to.
         """
+        x = np.array(x, dtype=int)
         self._check_values_validity(x)
-        summary = HarmonicBernoulli._fit_harmonics(
-            t / self.period, x, self.n_harmonics, self._kernel_func
+        summary = HarmonicMultiBernoulli._fit_harmonics(
+            t / self.period, x, self.n_harmonics, self.n_levels, self._kernel_func
         )
-        self.mu = summary.x
+        self.mus = summary.mus
         self.fit_summary = summary
 
     def param_valuation(self, t: float) -> list:
@@ -194,11 +205,49 @@ class HarmonicBernoulli(HarmonicDistribution):
         mu : array-like
             Actual values of the parameter p of the Bernoulli distribution for each timepoint.
         """
-        return harmonics_valuation(self.mu, t=t, period=self.period)
+        return HarmonicMultiBernoulli._param_valuation(
+            t, self.mus, self.period, self._kernel_func
+        )
+
+    @staticmethod
+    def _param_valuation(
+        t: np.ndarray, mus: np.ndarray, period: float, kernel_func: callable
+    ) -> np.ndarray:
+        """Compute the actual value of the parameters for each timepoint.
+
+        Parameters
+        ----------
+        t : array-like
+            Timepoints at which the parameters should be evaluated.
+        mus : array-like
+            Harmonics of the distribution.
+        period : float
+            Period of the harmonics.
+        kernel_func : callable
+            Kernel function of the distribution.
+
+        Returns
+        -------
+        array-like
+            Actual values of the parameters for each timepoint.
+        """
+        n = t.shape[0]
+        mus_derivative = np.array(
+            [
+                harmonics_valuation(mus[i, :], t=t, period=period)
+                for i in range(mus.shape[0])
+            ]
+        )
+        mus_derivative[1:, :] = selu(mus_derivative[1:, :])
+
+        mus_infinite = np.cumsum(mus_derivative, axis=0)
+        cp = kernel_func(mus_infinite)
+        cp = np.concatenate((np.zeros((1, n)), cp, np.ones((1, n))), axis=0)
+        return np.diff(cp, axis=0)
 
     @staticmethod
     def _fit_harmonics(
-        t: float, x: float, n_harmonics: int, kernel_func: callable
+        t: float, x: float, n_levels: int, n_harmonics: int, kernel_func: callable
     ) -> any:
         """Fit the harmonics to the data.
 
@@ -218,14 +267,21 @@ class HarmonicBernoulli(HarmonicDistribution):
         array-like
             The optimal fit of the harmonics.
         """
-        mu0 = np.zeros(2 * n_harmonics + 1)
-        return minimize(
-            lambda mu: -HarmonicBernoulli.log_likelihhod(t, x, mu, kernel_func),
-            mu0,
+        mus0 = np.zeros((n_levels, 2 * n_harmonics + 1))
+        mus0_flat = mus0.flatten()
+        mus_opt = minimize(
+            lambda mu: -HarmonicMultiBernoulli.log_likelihhod(
+                t, x, mu.reshape((n_levels, 2 * n_harmonics + 1)), kernel_func
+            ),
+            mus0_flat,
         )
+        mus_opt.mus = mus_opt.x.reshape((n_levels, 2 * n_harmonics + 1))
+        return mus_opt
 
     @staticmethod
-    def log_likelihhod(t: float, x: float, mu: list, kernel_func: callable) -> float:
+    def log_likelihhod(
+        t: float, x: float, mus: np.ndarray, kernel_func: callable
+    ) -> float:
         """Log-likelihood of the distribution.
 
         Parameters
@@ -244,12 +300,13 @@ class HarmonicBernoulli(HarmonicDistribution):
         float-like
             The log-likelihood of the distribution.
         """
-        log_p = harmonics_valuation(mu, t=t, period=1.0)
-        p = kernel_func(log_p)
-        return np.sum(np.log(p * (x == 1) + (1 - p) * (x == 0)))
+        n = t.shape[0]
+
+        p = HarmonicMultiBernoulli._param_valuation(t, mus, 1.0, kernel_func)
+        return np.sum(np.log(p[x, np.arange(n)]))
 
     def _isfit(self) -> bool:
-        return super()._isfit() and self.mu is not None
+        return super()._isfit() and self.mus is not None
 
     def _check_values_validity(self, x: float):
         """Check if the values are valid for the distribution.
@@ -266,30 +323,19 @@ class HarmonicBernoulli(HarmonicDistribution):
         ValueError
             If the value is not valid.
         """
-        if ((x != 0) & (x != 1)).any():
-            raise ValueError("The value should be either 0 or 1.")
-
-    @staticmethod
-    def narctan(x: float) -> float:
-        """Normalized arctan kernel function.
-
-        Parameters
-        ----------
-        x : float-like
-            The value at which the kernel is evaluated.
-
-        Returns
-        -------
-        float-like
-            The value of the kernel at x.
-        """
-        return np.arctan(x) / np.pi + 0.5
+        values_valid = np.arange(self.n_levels + 1)
+        if not np.all(np.isin(x, values_valid)):
+            raise ValueError(
+                f"The value should be integer and between 0 and the number of levels {self.n_levels}."
+            )
 
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    bernoulli = HarmonicBernoulli(mu=[0.2, 2.0, 0.8, 0.6, 0.8], kernel="sigmoid")
+    mus = np.array([[0.2, 0.1, 0.1, 0.1, 0.1], [0.8, 0.1, 0.1, 0.1, 0.1]])
+
+    bernoulli = HarmonicMultiBernoulli(mus=mus, kernel="sigmoid")
     t = np.linspace(0, 5, 1000)
     t1 = np.linspace(0, 1, 1001, endpoint=True)
 
@@ -297,30 +343,59 @@ if __name__ == "__main__":
     fig, ax = plt.subplots()
     ax.plot(t, bernoulli.pdf(t, 0), label="PDF at x=0")
     ax.plot(t, bernoulli.pdf(t, 1), label="PDF at x=1")
+    ax.plot(t, bernoulli.pdf(t, 2), label="PDF at x=2")
     ax.set_xlabel("Time")
     ax.set_ylabel("Density")
     ax.legend()
     plt.show()
 
     # Tests the random variates generation
-    fig, ax = plt.subplots()
-    ax.plot(
+    fig, axes = plt.subplots(2, height_ratios=[2, 1], sharex=True)
+    axes[0].plot(
         t % 1, bernoulli.rvs(t) + 0.05 * np.random.randn(t.shape[0]), "o", markersize=2
     )
-    ax.plot(t1, bernoulli.pdf(t1, 1), label="PDF")
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Random variate")
+    axes[0].set_ylabel("Random variate")
+    for i in range(bernoulli.n_levels + 1):
+        axes[1].fill_between(
+            t1, bernoulli.cdf(t1, i - 1), bernoulli.cdf(t1, i), label=f"CDF {i}"
+        )
+    axes[1].set_xlabel("Time")
+    axes[1].set_ylabel("CDF")
+    axes[1].set_ylim(0, 1.1)
     plt.show()
 
     # Tests the fit the distribution to the data
-    p = 0.3 * (np.sin(2 * np.pi * t) + 1) + 0.3
-    x = p > np.random.rand(*t.shape)
-    bernoulli_to_fit = HarmonicBernoulli(kernel="sigmoid", n_harmonics=2)
+    p = np.array(
+        [
+            0.25 * (np.sin(2 * np.pi * t + 1)) + 0.3,
+            0.2 * (np.cos(2 * np.pi * t + 0.8)) + 0.7,
+        ]
+    )
+    x = np.sum(np.random.rand(1, *t.shape) > p, axis=0)
+    bernoulli_to_fit = HarmonicMultiBernoulli(
+        kernel="sigmoid", n_harmonics=2, n_levels=2
+    )
     bernoulli_to_fit.fit(t, x)
 
-    fig, ax = plt.subplots()
-    ax.plot(
-        t % 1, x + 0.05 * np.random.randn(t.shape[0]), "o", label="Data", markersize=2
-    )
-    ax.plot(t1, bernoulli_to_fit.pdf(t1, 1), label="Fitted PDF")
-    ax.plot(t[t < 1], p[t < 1], label="True PDF")
+    fig, axes = plt.subplots(2, height_ratios=[2, 1], sharex=True)
+    axes[0].plot(t % 1, x + 0.05 * np.random.randn(t.shape[0]), "o", markersize=2)
+    axes[0].set_ylabel("Random variate")
+    for i in range(bernoulli_to_fit.n_levels + 1):
+        axes[1].fill_between(
+            t,
+            bernoulli_to_fit.cdf(t, i - 1),
+            bernoulli_to_fit.cdf(t, i),
+            label=f"CDF {i}",
+            alpha=0.5,
+        )
+        axes[1].plot(
+            t,
+            p[i] if i != bernoulli_to_fit.n_levels else np.ones_like(t),
+            label=f"True CDF {i}",
+            linestyle="--",
+        )
+    axes[1].set_xlabel("Time")
+    axes[1].set_ylabel("CDF")
+    axes[1].set_ylim(0, 1.1)
+    axes[1].set_xlim(0, 1)
+    plt.show()
