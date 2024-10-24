@@ -22,6 +22,7 @@ from core.random.ar_processes import (
     decimated_gaussian,
     decimated_gaussian_interp,
     garch_process,
+    garch_process_rho,
     gaussian_ar_process,
     independent_process,
     warren_process,
@@ -241,10 +242,6 @@ def average_pi_emp(sub_df, data):
     return np.mean(pi_emps, axis=0)
 
 
-def garch_process_rho(n, rho, w):
-    return garch_process(n, np.array([0.1, rho]), np.array([0.99 - rho]), w)
-
-
 if __name__ == "__main__":
     from utils.paths import output
     import os
@@ -282,7 +279,7 @@ if __name__ == "__main__":
         "GARCH": {
             "process": garch_process_rho,
             "args": default_args,
-            "kwargs": {"rho": rho, "w": w},
+            "kwargs": {"rho": np.minimum(rho, 0.99), "w": w},
             "parameter": "rho",
         },
         "Warren": {
@@ -317,7 +314,7 @@ if __name__ == "__main__":
         },
     }
 
-    for METHOD in list(process_generators.keys())[::-1]:
+    for METHOD in list(process_generators.keys())[1::-1]:
         print(f"Running {METHOD}")
         OUT_DIR = output(f"Simulations/EDOF/{METHOD}")
         os.makedirs(OUT_DIR, exist_ok=True)
@@ -359,9 +356,7 @@ if __name__ == "__main__":
         plt.show()
 
         fig, ax = plt.subplots()
-        ax = protocol.plot_pi_emp(
-            process_parameter, where=[("w", w0)], ax=ax, wmax=w0
-        )
+        ax = protocol.plot_pi_emp(process_parameter, where=[("w", w0)], ax=ax, wmax=w0)
         fig.tight_layout()
         fig.savefig(os.path.join(OUT_DIR, "pi_emp.png"), dpi=300)
         plt.show()

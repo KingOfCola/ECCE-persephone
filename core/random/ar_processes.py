@@ -64,6 +64,10 @@ def garch_process(n, alpha, beta, w=None):
     return garch_process_cy(n, alpha, beta)
 
 
+def garch_process_rho(n, rho, w):
+    return garch_process(n, np.array([0.1, rho]), np.array([0.99 - rho]), w)
+
+
 def gaver_lewis_process(n, alpha, beta, rho, w=None):
     """
     Generate a Markov Chain with univariate marignal distribution Gamma(alpha, beta)
