@@ -223,11 +223,22 @@ if __name__ == "__main__":
     )
     from utils.loaders.synop_loader import load_fit_synop
 
-    METHOD = "SYNOP_t-MAX"
+    METHOD = "SYNOP_t-MIN"
     OUT_DIR = output(f"Simulations/EDOF/{METHOD}")
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    SYNOP_TMAX = load_fit_synop("t_MAX")
+    meteorological_metrics = ["t_MAX", "t_MIN", "t_AVG", "preliq_SUM", "preliq_MAX"]
+    SYNOP_DATA = {
+        metric: load_fit_synop(metric).data.values for metric in meteorological_metrics
+    }
+    SYNOP_GENERATORS = {
+        ("SYNOP_" + metric.replace("_", "-")): {
+            "process": data,
+            "args": None,
+            "kwargs": None,
+        }
+        for metric, data in SYNOP_DATA.items()
+    }
 
     n = 10_000
     w = 10
@@ -273,12 +284,8 @@ if __name__ == "__main__":
             "args": default_args,
             "kwargs": {"w": w},
         },
-        "SYNOP_t-MAX": {
-            "process": SYNOP_TMAX.data.values,
-            "args": None,
-            "kwargs": None,
-        },
     }
+    process_generators.update(SYNOP_GENERATORS)
 
     process_settings = process_generators[METHOD]
     process_generator = process_settings["process"]
