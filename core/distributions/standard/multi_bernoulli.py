@@ -187,7 +187,7 @@ class HarmonicMultiBernoulli(HarmonicDistribution):
         x = np.array(x, dtype=int)
         self._check_values_validity(x)
         summary = HarmonicMultiBernoulli._fit_harmonics(
-            t / self.period, x, self.n_harmonics, self.n_levels, self._kernel_func
+            t=t / self.period, x=x, n_harmonics=self.n_harmonics, n_levels=self.n_levels, kernel_func=self._kernel_func
         )
         self.mus = summary.mus
         self.fit_summary = summary
@@ -368,12 +368,13 @@ if __name__ == "__main__":
     p = np.array(
         [
             0.25 * (np.sin(2 * np.pi * t + 1)) + 0.3,
+            0.25 * (np.sin(2 * np.pi * t + 1)) + 0.4,
             0.2 * (np.cos(2 * np.pi * t + 0.8)) + 0.7,
         ]
     )
     x = np.sum(np.random.rand(1, *t.shape) > p, axis=0)
     bernoulli_to_fit = HarmonicMultiBernoulli(
-        kernel="sigmoid", n_harmonics=2, n_levels=2
+        kernel="sigmoid", n_harmonics=2, n_levels=3
     )
     bernoulli_to_fit.fit(t, x)
 

@@ -205,6 +205,9 @@ class HarmonicSGED(HarmonicDistribution):
         """
         if self.n_harmonics is None:
             raise ValueError("The number of harmonics should be specified.")
+        where = np.isfinite(x)
+        t = t[where]
+        x = x[where]
 
         # Fit the distribution
         self.fit_summary = HarmonicSGED._maximize_llhood_sged_harmonics(

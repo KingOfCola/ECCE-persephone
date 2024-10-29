@@ -65,4 +65,6 @@ def predefined_generator(data, i, w: int = 1):
     x : array of shape (n, w)
         The generated process
     """
-    return sliding_windows(data[:, i], w=w)
+    sw = sliding_windows(data[:, i], w=w)
+    where = np.isfinite(sw).all(axis=1)
+    return sw[where]

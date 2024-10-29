@@ -13,26 +13,27 @@ from core.distributions.base.dist import (
     TSTransform,
     DistributionNotFitError,
 )
+from core.distributions.base.model_mixture import HarmonicModelMixture
 
 from core.distributions.standard.multi_bernoulli import HarmonicMultiBernoulli
 
 
-class HarmonicThresholdModelMixture(HarmonicDistribution):
+class HarmonicThresholdModelMixture(HarmonicModelMixture):
     def __init__(
         self,
         period: float,
         thresholds: np.ndarray,
         models: list[HarmonicDistribution],
-        n_harnonics: int = 2,
+        n_harmonics: int = 2,
     ):
         super().__init__(period=period)
         self._models: list[HarmonicDistribution] = models
         self._thresholds: np.ndarray = thresholds
         self._levels = len(self._thresholds) + 1
         self._weights: HarmonicDistribution = HarmonicMultiBernoulli(
-            period=period, n_harnonics=n_harnonics, n_levels=self._levels
+            period=period, n_harmonics=n_harmonics, n_levels=self._levels - 1
         )
-        self._n_harnonics = n_harnonics
+        self._n_harmonics = n_harmonics
 
         if len(self._models) != len(self._thresholds) + 1:
             raise ValueError(
@@ -69,6 +70,10 @@ class HarmonicThresholdModelMixture(HarmonicDistribution):
         x : array-like
             The data to which the distribution is fitted.
         """
+        where = np.isfinite(x)
+        t = np.array(t)[where]
+        x = np.array(x)[where]
+
         ks = np.digitize(x, self._thresholds)
         self._weights.fit(t, ks)
 

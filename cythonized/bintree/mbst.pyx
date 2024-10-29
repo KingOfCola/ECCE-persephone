@@ -232,8 +232,11 @@ cdef int count_points_node(Tree tree, double* point, int exceeding_dimensions = 
     if value > upper_value:
         return count_points_node(node.left, point, exceeding_dimensions) + count_points_node(node.right, point, exceeding_dimensions)
     # One dimension is already exceeding all points from left tree. But we don't know for the right one.
-    elif value >= split_value:
+    elif value > split_value:
         return count_points_node(node.left, point, exceeding_dimensions + 1) + count_points_node(node.right, point, exceeding_dimensions)
+    # One dimension is already exceeding all points from left tree. But we don't know for the right one. EDGE CASE
+    elif value > split_value:
+        return count_points_node(node.left, point, exceeding_dimensions) + count_points_node(node.right, point, exceeding_dimensions)
     # All points from right tree are exceeding the point. But we don't know for the left one.
     elif value >= lower_value:
         return count_points_node(node.left, point, exceeding_dimensions)

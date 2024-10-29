@@ -32,7 +32,9 @@ class LogTransform(TSTransform):
         array-like
             The transformed data.
         """
-        return np.log(x)
+        tr = np.full_like(x, -np.inf)
+        tr[x > 0] = np.log(x[x > 0])
+        return tr
 
     def inverse_transform(self, t: np.ndarray, y: np.ndarray) -> np.ndarray:
         """Inverse transform the data.

@@ -10,10 +10,11 @@
 
 
 import os
+from pathlib import Path
 import json
 import warnings
 
-__ROOT_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+__ROOT_PATH = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 __PATHS_JSON = "paths.json"
 
 __PATHS = None
@@ -37,7 +38,7 @@ def asset(path: str) -> str:
     str
         The full path to the asset file.
     """
-    return os.path.join(__ROOT_PATH, "assets", path)
+    return __ROOT_PATH / "assets" / path
 
 
 def load_path_json() -> dict:
@@ -119,7 +120,7 @@ def validate_paths(paths: dict) -> bool:
 
 def get_path_factory(root: str):
     paths = load_path_json()
-    root_path = paths[root]
+    root_path = Path(paths[root])
 
     def get_path(path: str) -> str:
         """
@@ -135,7 +136,7 @@ def get_path_factory(root: str):
         str
             The absolute path.
         """
-        return os.path.join(root_path, path)
+        return root_path / path
 
     return get_path
 

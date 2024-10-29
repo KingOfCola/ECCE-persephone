@@ -10,12 +10,12 @@
 
 from multiprocessing import Pool
 import numpy as np
-import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from core.data.confidence_intervals import ConfidenceInterval
 from core.distributions.ecdf import ecdf_ci_binomial
+from core.mathematics.functions import sigmoid
 from core.optimization.mecdf import cdf_of_mcdf
 
 from protocol.cdf_of_mcdf.utils import compute_pi_emp, predefined_generator
@@ -34,9 +34,7 @@ class CDFofMCDFProtocol:
         self.process_args = process_args if process_args is not None else []
         self.process_kwargs = process_kwargs if process_kwargs is not None else {}
 
-        self.n = None
         self.w = w
-        self.q = None
 
         self.pi_emps = None
         self.dof_emps = None
@@ -53,21 +51,15 @@ class CDFofMCDFProtocol:
     def run_simulation(self):
         # Finds the number of dimensions and the number of samples
         if isinstance(self.process_generator, np.ndarray):
-            n = self.process_generator.shape[0] - self.w + 1
             w = self.w
         else:
             x = self.process_generator(*self.process_args, **self.process_kwargs)
-            n = x.shape[0]
             w = x.shape[1]
 
-        q = np.arange(1, n + 1) / (n + 1)
-
-        self.q = q
-        self.n = n
         self.w = w
 
         # Initialize the arrays to store the results
-        self.pi_emps = np.full((self.n_sim, n), np.nan)
+        self.pi_emps = [[] for _ in range(self.n_sim)]
         self.dof_emps = np.full(self.n_sim, np.nan)
 
         # Generate the parameters for the simulations
@@ -96,33 +88,64 @@ class CDFofMCDFProtocol:
                 self.pi_emps[i] = x[0]
                 self.dof_emps[i] = x[1]
 
+        n = len(self.pi_emps[0])
+        if all([len(pi_emp) == n for pi_emp in self.pi_emps]):
+            self.pi_emps = np.array(self.pi_emps)
+
         # Compute the statistics of the simulations
         self.dof_emp = np.nanmean(self.dof_emps)
 
-        if self.n_sim == 1:
+        if len(self.pi_emps) == 1:
             self.pi_emp = ecdf_ci_binomial(self.pi_emps[0])
-        else:
+        elif isinstance(self.pi_emps, np.ndarray):
             pemp_ci = np.nanpercentile(self.pi_emps, [2.5, 50, 97.5], axis=0)
-            self.pi_emp = ConfidenceInterval(self.n)
+            self.pi_emp = ConfidenceInterval(n)
             self.pi_emp.lower = pemp_ci[0]
             self.pi_emp.values = pemp_ci[1]
             self.pi_emp.upper = pemp_ci[2]
+        else:
+            self.pi_emp = None
 
-    def plot_results(self, ax: plt.Axes = None, lim=1e-4, alpha=0.05):
+    def plot_results(
+        self, ax: plt.Axes = None, lim=1e-4, cmap="viridis", alpha=1, individual=False
+    ):
         ax = plt.gca() if ax is None else ax
-        ax.plot(self.pi_emp, self.q, c="blue", label="Empirical CDF of the MCDF")
-        ax.fill_betweenx(
-            self.q,
-            np.clip(self.pi_emp.lower, lim, 1 - lim),
-            np.clip(self.pi_emp.upper, lim, 1 - lim),
-            color="blue",
-            alpha=0.1,
-        )
+        llim = -np.log(lim)
+
+        if self.pi_emp is not None and not individual:
+            n = len(self.pi_emp)
+            q = np.arange(1, n + 1) / (n + 1)
+            ax.plot(self.pi_emp, q, c="blue", label="Empirical CDF of the MCDF")
+            ax.fill_betweenx(
+                q,
+                np.clip(self.pi_emp.lower, lim, 1 - lim),
+                np.clip(self.pi_emp.upper, lim, 1 - lim),
+                color="blue",
+                alpha=0.1,
+            )
+        else:
+            p = len(self.pi_emps)
+            if isinstance(cmap, str):
+                cmap = plt.get_cmap(cmap)
+
+            for i in range(p):
+                n = len(self.pi_emps[i])
+                q = np.arange(1, n + 1) / (n + 1)
+                ax.plot(
+                    self.pi_emps[i],
+                    q,
+                    c=cmap(i / p),
+                    alpha=alpha,
+                    lw=0.7,
+                    label="Empirical CDF of the MCDF" if i == 0 else None,
+                )
+
+        q = sigmoid(np.linspace(-llim, llim, 1000))
         for i in range(1, self.w + 1):
-            y = cdf_of_mcdf(self.q, i)
+            y = cdf_of_mcdf(q, i)
             y0 = cdf_of_mcdf(np.array([lim]), i)[0]
             ax.plot(
-                self.q,
+                q,
                 y,
                 c="k",
                 ls="--",
@@ -138,8 +161,8 @@ class CDFofMCDFProtocol:
                 va="top",
             )
         ax.plot(
-            self.q,
-            cdf_of_mcdf(self.q, self.dof_emp),
+            q,
+            cdf_of_mcdf(q, self.dof_emp),
             lw=0.7,
             c="red",
             label=rf"Effective DOF $\delta={self.dof_emp:.2f}$",
@@ -223,17 +246,18 @@ if __name__ == "__main__":
     )
     from utils.loaders.synop_loader import load_fit_synop
 
-    METHOD = "SYNOP_t-MIN"
+    METHOD = "SYNOP_preliq-MAX"
     OUT_DIR = output(f"Simulations/EDOF/{METHOD}")
     os.makedirs(OUT_DIR, exist_ok=True)
 
     meteorological_metrics = ["t_MAX", "t_MIN", "t_AVG", "preliq_SUM", "preliq_MAX"]
     SYNOP_DATA = {
-        metric: load_fit_synop(metric).data.values for metric in meteorological_metrics
+        metric: load_fit_synop(metric).data.values
+        for metric in meteorological_metrics[4:5]
     }
     SYNOP_GENERATORS = {
         ("SYNOP_" + metric.replace("_", "-")): {
-            "process": data,
+            "process": 1 - data,
             "args": None,
             "kwargs": None,
         }

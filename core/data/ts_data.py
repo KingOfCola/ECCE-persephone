@@ -70,7 +70,7 @@ class TSData:
 
     @property
     def p(self):
-        return self._data.shape[1]
+        return len(self.labels)
 
     @property
     def first_full_year(self):
@@ -92,6 +92,45 @@ class TSData:
             The end year, inclusive.
         """
         return self[(self.year >= start) & (self.year <= end)]
+
+    def where(self, mask: np.ndarray):
+        """
+        Filters the data by the mask.
+
+        Parameters
+        ----------
+        mask : np.ndarray
+            The mask to filter the data.
+
+        Returns
+        -------
+        TSData
+            The data with the mask applied.
+        """
+        d = deepcopy(self)
+        d._data = d._data[mask]
+        return d
+
+    def subset(self, labels: list):
+        """
+        Gets a subset of the data.
+
+        Parameters
+        ----------
+        labels : list
+            The labels to subset.
+
+        Returns
+        -------
+        TSData
+            The data subset.
+        """
+        d = deepcopy(self)
+        labels = list(labels)
+        meta_columns = [c for c in d._data if c not in d.labels]
+        d._data = d._data.loc[:, labels + meta_columns]
+        d._labels = labels
+        return d
 
     def __getitem__(self, key):
         """
@@ -136,7 +175,7 @@ class HarmonicTSData(TSData):
     def __init__(
         self,
         data: pd.DataFrame,
-        model: HarmonicDistribution,
+        model: HarmonicDistribution = None,
         meta: dict = None,
     ):
         super().__init__(
@@ -160,7 +199,17 @@ class HarmonicTSData(TSData):
 
     @property
     def raw_data(self):
-        return self._raw_data
+        return self._raw_data[self.labels]
+
+    def where(self, mask: np.ndarray):
+        d = super().where(mask)
+        d._raw_data = d._raw_data[mask]
+        return d
+
+    def subset(self, labels):
+        d = super().subset(labels)
+        d._raw_data = d._raw_data[d.labels]
+        return d
 
     def fit_harmonics_monothread(self):
         cdfs = self.data.copy()
@@ -195,7 +244,11 @@ class HarmonicTSData(TSData):
         self._data = cdfs
 
     def fit_harmonics(self):
-        cdfs = self.data.copy()
+        if self._model is None:
+            self._raw_data = self._data
+            return
+
+        cdfs = self._data.copy()
         unfit_labels = []
         params = [
             (

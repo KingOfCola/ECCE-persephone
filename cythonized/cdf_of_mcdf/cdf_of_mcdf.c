@@ -6,7 +6,7 @@
         "depends": [],
         "name": "cdf_of_mcdf",
         "sources": [
-            "C:\\Users\\Urvan\\Documents\\ECCE\\code\\ecce-root\\cythonized\\cdf_of_mcdf\\cdf_of_mcdf.pyx"
+            "C:\\Users\\urvan\\Documents\\ECCE\\ECCE-persephone\\cythonized\\cdf_of_mcdf\\cdf_of_mcdf.pyx"
         ]
     },
     "module_name": "cdf_of_mcdf"

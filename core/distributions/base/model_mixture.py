@@ -38,10 +38,10 @@ class HarmonicModelMixture(HarmonicDistribution):
         """
         if not self._isfit():
             raise DistributionNotFitError("Model mixture not fitted")
-        ps = np.zeros((len(self._models),) + t.shape)
+        ps = np.zeros(t.shape)
         for k, model in enumerate(self._models):
-            ps[k] = model.cdf(t, x) * self._weights.cdf(t, k)
-        return ps.sum(axis=0)
+            ps += model.cdf(t, x) * self._weights.pdf(t, k)
+        return ps
 
     def pdf(self, t: float, x: float) -> float:
         """Probability density function.
@@ -62,8 +62,8 @@ class HarmonicModelMixture(HarmonicDistribution):
             raise DistributionNotFitError("Model mixture not fitted")
         ps = np.zeros((len(self._models),) + t.shape)
         for k, model in enumerate(self._models):
-            ps[k] = model.pdf(t, x) * self._weights.pdf(t, k)
-        return ps.sum(axis=0)
+            ps += model.pdf(t, x) * self._weights.pdf(t, k)
+        return ps
 
     def ppf(self, t: float, q: float) -> float:
         """Percent point function.

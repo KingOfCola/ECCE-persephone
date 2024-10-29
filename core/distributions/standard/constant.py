@@ -53,11 +53,11 @@ class HarmonicConstant(HarmonicDistribution):
         Returns
         -------
         float-like
-            The value of the PDF at x. Those are only ones for compatibility
+            The value of the PDF at x.
         """
         if not self._isfit():
             raise DistributionNotFitError("Constant distribution not fitted")
-        return np.ones_like(x)
+        return np.where(x == self._value, np.inf, 0.0)
 
     def ppf(self, t: float, q: float) -> float:
         """Percent point function.
