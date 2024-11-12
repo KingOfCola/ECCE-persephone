@@ -9,6 +9,7 @@
 """
 
 
+import pickle
 import pandas as pd
 import os
 
@@ -70,19 +71,44 @@ def load_fit_synop(
     """
     Load and fit a model to a SYNOP dataset
     """
-    if "/" not in data_path:
+    # If data_path is not a path, assume it is a metric
+    data_path = str(data_path)
+    if "/" not in data_path or "\\" not in data_path:
+        metric = data_path
         data_path = data_dir(rf"Meteo-France_SYNOP/Preprocessed/{data_path}.parquet")
+    else:
+        metric = os.path.basename(data_path).split(".")[0]
     if stations_path is None:
         stations_path = data_dir(r"Meteo-France_SYNOP/Raw/postesSynop.csv")
+    cache_path = data_dir(
+        f"Meteo-France_SYNOP/Preprocessed/TSHarmonics/{metric}_model.pkl"
+    )
 
-    if model_type is None:
+    # Check if the model is the default model and load it from cache if it exists
+    default_model = model_type is None
+    if default_model and cache_path.exists() and not kwargs.get("force", False):
+        with open(cache_path, "rb") as f:
+            return pickle.load(f)
+    # If no model is specified, use the default model
+    elif default_model:
         model_type = (
-            POSITIVE_LOG_SGED_MODEL if "preliq" in data_path else HARMONIC_SGED_MODEL
+            POSITIVE_LOG_SGED_MODEL
+            if "preliq" in str(data_path)
+            else HARMONIC_SGED_MODEL
         )
 
+    # Load and fit model
     model = __make_model(model_type=model_type, **kwargs)
     data = load_synop(data_path, stations_path)
-    return fit_model_synop(data, model)
+    data_fit = fit_model_synop(data, model)
+
+    # Cache the model if it is the default model
+    if default_model:
+        os.makedirs(cache_path.parent, exist_ok=True)
+        with open(cache_path, "wb") as f:
+            pickle.dump(data_fit, f)
+
+    return data_fit
 
 
 def __make_model(model_type: str, **kwargs) -> HarmonicDistribution:

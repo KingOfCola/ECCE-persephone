@@ -11,6 +11,8 @@
 
 import time
 
+MASK = "%duration"
+
 
 class Timer:
     def __init__(self, message=None):
@@ -18,14 +20,17 @@ class Timer:
         self.end_time = None
         self.elapsed_time = None
         self.message = message if message else "Elapsed time: %duration"
+        if MASK not in self.message:
+            self.message += f" {MASK}"
 
     def __enter__(self):
+        print(self.message.replace(MASK, "..."), end="\r")
         self.start()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stop()
-        print(self.message.replace("%duration", self.format_time(self.elapsed_time)))
+        print(self.message.replace(MASK, self.format_time(self.elapsed_time)))
 
     def start(self):
         self.start_time = time.time()
