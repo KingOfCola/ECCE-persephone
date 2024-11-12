@@ -49,6 +49,38 @@ def selu(x: np.ndarray) -> np.ndarray:
     return np.log(1 + np.exp(x))
 
 
+def logit(x: np.ndarray) -> np.ndarray:
+    """Logit function.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Input values.
+
+    Returns
+    -------
+    np.ndarray
+        Logit values.
+    """
+    return np.log(x / (1 - x))
+
+
+def expit(x: np.ndarray) -> np.ndarray:
+    """Expit function.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Input values.
+
+    Returns
+    -------
+    np.ndarray
+        Expit values.
+    """
+    return 1 / (1 + np.exp(-x))
+
+
 def check_sged_params(mu: float, sigma: float, lamb: float, p: float):
     """
     Checks the parameters of the SGED distribution.

@@ -10,12 +10,15 @@
 
 
 import numpy as np
-from core.distributions.mecdf import MultivariateMarkovianECDF
+from core.distributions.mecdf import (
+    MultivariateMarkovianECDF,
+    MultivariateInterpolatedECDF,
+)
 from core.optimization.mecdf import find_effective_dof, cdf_of_mcdf
 
 
 def ecdf_of_mcdf(x: np.ndarray, w: int) -> np.ndarray:
-    mmecdf = MultivariateMarkovianECDF(d=w)
+    mmecdf = MultivariateInterpolatedECDF(d=w)
     mmecdf.fit(x)
     y = mmecdf.cdf(x)
     return np.where(np.isnan(y), 0, y)

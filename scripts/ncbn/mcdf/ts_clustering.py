@@ -15,7 +15,10 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 
-from core.distributions.mecdf import MultivariateMarkovianECDF
+from core.distributions.mecdf import (
+    MultivariateMarkovianECDF,
+    MultivariateInterpolatedECDF,
+)
 from utils.loaders.ncbn_loader import load_fit_ncbn
 from utils.paths import data_dir, output
 from utils.timer import Timer
@@ -74,7 +77,7 @@ if __name__ == "__main__":
 
     # Fit MECDF model
     with Timer("Fitting MECDF: %duration"):
-        mecdf = MultivariateMarkovianECDF()
+        mecdf = MultivariateInterpolatedECDF()
         mecdf.fit(xx_valid)
 
     p_valid = mecdf.cdf(xx_valid)
