@@ -40,6 +40,6 @@ def cdf_of_mcdf(q: np.ndarray, dof: float) -> np.ndarray:
 
 def find_effective_dof(q, cdf: np.ndarray) -> float:
     """
-    Find the effective degrees of freedom of a Gaussian copula that best fits the empirical copula
+    Find the effective degrees of freedom of an independent copula that best fits the empirical copula
     """
     return curve_fit(cdf_of_mcdf, cdf, q, p0=(2.0,))[0][0]

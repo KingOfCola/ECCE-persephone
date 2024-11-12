@@ -180,24 +180,28 @@ class CDFofMCDFProtocol:
         self, ax: plt.Axes = None, lim=1e-4, cmap="viridis", alpha=1
     ):
         ax = plt.gca() if ax is None else ax
-        n = self.pi_emps.shape[0]
+        llim = -np.log(lim)
+        n = len(self.pi_emps)
         if isinstance(cmap, str):
             cmap = plt.get_cmap(cmap)
 
         for i in range(n):
+            n_samples = len(self.pi_emps[i])
+            q = (np.arange(1, n_samples + 1) / (n_samples + 1)).astype(float)
             ax.plot(
                 self.pi_emps[i],
-                self.q,
+                q,
                 c=cmap(i / n),
                 alpha=alpha,
                 lw=0.7,
                 label="Empirical CDF of the MCDF" if i == 0 else None,
             )
+        q = sigmoid(np.linspace(-llim, llim, 1000))
         for i in range(1, self.w + 1):
-            y = cdf_of_mcdf(self.q, i)
+            y = cdf_of_mcdf(q, i)
             y0 = cdf_of_mcdf(np.array([lim]), i)[0]
             ax.plot(
-                self.q,
+                q,
                 y,
                 c="k",
                 ls="--",
@@ -213,8 +217,8 @@ class CDFofMCDFProtocol:
                 va="top",
             )
         ax.plot(
-            self.q,
-            cdf_of_mcdf(self.q, self.dof_emp),
+            q,
+            cdf_of_mcdf(q, self.dof_emp),
             lw=1.5,
             c="red",
             label=rf"Effective DOF $\delta={self.dof_emp:.2f}$",
@@ -246,15 +250,19 @@ if __name__ == "__main__":
     )
     from utils.loaders.synop_loader import load_fit_synop
 
-    METHOD = "SYNOP_preliq-MAX"
-    OUT_DIR = output(f"Simulations/EDOF/{METHOD}")
+    METHOD = "SYNOP_t-MAX"
+    OUT_DIR = output(f"Simulations/EDOF-Interpolated/{METHOD}")
     os.makedirs(OUT_DIR, exist_ok=True)
 
     meteorological_metrics = ["t_MAX", "t_MIN", "t_AVG", "preliq_SUM", "preliq_MAX"]
     SYNOP_DATA = {
         metric: load_fit_synop(metric).data.values
-        for metric in meteorological_metrics[4:5]
+        for metric in meteorological_metrics[:1]
     }
+    for metric in SYNOP_DATA:
+        data = SYNOP_DATA[metric]
+        SYNOP_DATA[metric] = data[:, ~np.isnan(data).all(axis=0)]
+
     SYNOP_GENERATORS = {
         ("SYNOP_" + metric.replace("_", "-")): {
             "process": 1 - data,

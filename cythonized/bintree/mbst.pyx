@@ -256,6 +256,16 @@ cpdef int count_points(MBST mbst, double[:] point):
 
 
 cdef class MBST:
+    """
+    Multidimensional Binary Search Tree (MBST) for fast queries of the number of points in a given rectangle.
+
+    Parameters
+    ----------
+    data : array-like, shape (n_points, n_dimensions)
+        The data points.
+    bounds : Rectangle, optional
+        The bounds of the data points. If not provided, the bounds are computed from the data.
+    """
     cdef Rectangle bounds
     cdef Tree tree
     cdef double[:, :] data

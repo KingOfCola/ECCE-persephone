@@ -303,6 +303,35 @@ class HarmonicSGED(HarmonicDistribution):
         n_harmonics: int,
         period: float = 1.0,
     ) -> float:
+        """Negative loglikelihood of the SGED distribution.
+
+        Parameters
+        ----------
+        params : array of floats
+            Parameters of the distribution. The array should have a shape of
+            `2 * n_harmonics + 1`, where `n_harmonics` is the number of harmonics to consider.
+            The parameters are cyclicly dependent on time, with `n_harmonics` harmonics
+            considered.
+            The first element `params[0]` of the encoding is the constant term, and the
+            following elements `params[2*k-1]` and `params[2*k]` are the coefficients of the
+            cosine and sine terms respectively of the `k`-th harmonics.
+
+        t : array of floats
+            Timepoints of the observations. It should be normalized so that the periodicity
+            of the data is 1 on the time axis.
+        x : array of floats
+            Observation data
+        n_harmonics : int
+            Number of harmonics to consider. Zero corresponds to constant parameters (i.e.
+            no time dependence)
+        period : float, optional
+            Period of the harmonics, by default 1.0.
+
+        Returns
+        -------
+        float
+            Negative loglikelihood of the SGED distribution.
+        """
         # Evaluate the parameters at each timepoint
         mu_h, sigma_h, lamb_h, p_h = HarmonicSGED._split_params(
             params, n_harmonics=n_harmonics
