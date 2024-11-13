@@ -286,7 +286,7 @@ class MarkovMCDF_alt:
 
     def cdf(self, x: np.ndarray) -> float:
         if len(x) == 1:
-            return 1.0
+            return x[0]
         if np.any(x <= 0.0):
             return 0.0
 
@@ -304,7 +304,7 @@ class MarkovMCDF_alt:
                 x_grid[-1] = 1.0
 
             for j, x_j in enumerate(x_grid):
-                phi_int_vals = np.array([self.phi_int(x_j, s) for s in x_grid_last])
+                phi_int_vals = self.phi(x_grid_last, x_j)
                 vals = t_grid[:, i - 1] * phi_int_vals
                 t_grid[j, i] = quad_vals(vals, bins=x_grid_last)
 
@@ -358,17 +358,19 @@ if __name__ == "__main__":
     RHO = 0.5
     W = 2
 
+    @np.vectorize
     def phi(x, y):
-        if x == 0 or y == 0 or x == 1 or y == 1:
+        if x == 0.0 or y == 0.0 or x == 1.0 or y == 1.0:
             return 0.0 if x != y else np.inf
         x_z = norm.ppf(x)
         y_z = norm.ppf(y)
         return (
-            (1 / (2 * np.pi * np.sqrt(1 - RHO**2)))
+            (1.0 / (2.0 * np.pi * np.sqrt(1.0 - RHO**2)))
             * np.exp(-0.5 * (x_z**2 - 2 * RHO * x_z * y_z + y_z**2) / (1 - RHO**2))
             / (norm.pdf(x_z) * norm.pdf(y_z))
         )
 
+    @np.vectorize
     def phi_int(x, y):
         """
         Computes the CDF of X_n given X_{n+1} = y
@@ -442,7 +444,7 @@ if __name__ == "__main__":
 
     plt.show()
 
-    markov = MarkovMCDF_alt(phi, phi_int, W, 21, 21)
+    markov = MarkovMCDF_alt(phi, phi_int, W, 101, 101)
     markov.fit()
     markov_ = markov
 
@@ -484,6 +486,18 @@ if __name__ == "__main__":
     ax[0].imshow(cdf_true, extent=(0, 1, 0, 1), origin="lower")
     ax[0].set_title("True CDF")
     ax[1].imshow(cdf_markov, extent=(0, 1, 0, 1), origin="lower")
+    ax[1].set_title("Markov CDF")
+    ax[2].scatter(cdf_true.ravel(), cdf_markov.ravel(), alpha=0.5, s=4)
+    ax[2].set_title("True vs Markov CDF")
+    ax[2].axline((0, 0), (1, 1), color="black", ls="--")
+    plt.show()
+
+    cdf_true = x_c
+    cdf_markov = np.array([markov_.cdf(np.array([x_i])) for x_i in x_c])
+    fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
+    ax[0].plot(x_c, cdf_true)
+    ax[0].set_title("True CDF")
+    ax[1].plot(x_c, cdf_markov)
     ax[1].set_title("Markov CDF")
     ax[2].scatter(cdf_true.ravel(), cdf_markov.ravel(), alpha=0.5, s=4)
     ax[2].set_title("True vs Markov CDF")
