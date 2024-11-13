@@ -208,7 +208,9 @@ class MarkovMCDF_alt:
         self.phi_kwargs = phi_kwargs
 
         if order > 1:
-            self.child = MarkovMCDF(phi, phi_int, order - 1, t_bins, x_bins)
+            self.child = MarkovMCDF_alt(
+                phi, phi_int, order - 1, t_bins, x_bins, phi_args, phi_kwargs
+            )
             self.t_grid = None
             self.x_grid = None
             self.h_cond_grid = None
@@ -241,7 +243,7 @@ class MarkovMCDF_alt:
             for j, x in enumerate(self.x_grid):
                 # Special case for the second order (as h_cond is stepwise defined for the first order)
                 if self.order == 2:
-                    self.h_cond_grid[i, j] = 1 - self.h2_lim(t, x)
+                    self.h_cond_grid[i, j] = self.h2_lim(t, x)
                     continue
 
                 def integrand(s):
@@ -413,10 +415,10 @@ def phi_gaussian(x, y, rho: float) -> float:
     )
 
 
-@np.vectorize
+# @np.vectorize
 def phi_int_gaussian(x, y, rho):
     """
-    Computes the CDF of X_n given X_{n+1} = y
+    Computes the CDF of X_{n+1} given X_n = x
 
     Parameters
     ----------
@@ -428,15 +430,15 @@ def phi_int_gaussian(x, y, rho):
     Returns
     -------
     float
-        The CDF of X_n given X_{n+1} = y
+        The CDF of X_{n+1} given X_n = x
     """
-    if y <= 0.0 or x >= 1.0:
-        return 1.0 * (x >= 0.0)
-    if y >= 1.0 or x <= 0.0:
-        return 0.0
+    # if y <= 0.0 or x >= 1.0:
+    #     return 1.0 * (x >= 0.0)
+    # if y >= 1.0 or x <= 0.0:
+    #     return 0.0
     x_z = norm.ppf(x)
     y_z = norm.ppf(y)
-    return norm.cdf((x_z - rho * y_z) / np.sqrt(1 - rho**2))
+    return norm.cdf((y_z - rho * x_z) / np.sqrt(1 - rho**2))
 
 
 if __name__ == "__main__":

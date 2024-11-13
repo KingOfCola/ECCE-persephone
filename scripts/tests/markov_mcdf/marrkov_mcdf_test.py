@@ -18,8 +18,8 @@ def gaussian_ar1(n, w, rho):
 
 if __name__ == "__main__":
 
-    W = 4
-    N = 10_000
+    W = 2
+    N = 1_000
     RHO = 0.7
 
     samples = gaussian_ar1(N, W, RHO)
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     markov = MarkovMCDF_alt(
         phi_gaussian, phi_int_gaussian, W, 21, 21, phi_kwargs={"rho": RHO}
     )
-    # markov.fit()
+    markov.fit()
     markov_ = markov
     markov_.t_bins = 101
     markov_.x_bins = 101
@@ -49,6 +49,10 @@ if __name__ == "__main__":
     cdfs_emp_mean = np.sort(cdfs_emp)
     cdfs_emp_std = np.sqrt(cdfs_emp_mean * (1 - cdfs_emp_mean) / N)
 
+    cdf_of_cdfs = np.array([markov_.h(c_i) for c_i in cdfs])
+    cdf_of_cdfs_emp = np.array([markov_.h(c_i) for c_i in cdfs_emp])
+    # cdfs_cond = np.array([markov_.cdf_cond(t, x_i[1]) for x_i in samples])
+
     # cdfs_cond = np.array([markov_.cdf_cond(t, x_i[1]) for x_i in samples])
     t = 0.7
 
@@ -64,6 +68,26 @@ if __name__ == "__main__":
     )
     ax.set_xscale("logit")
     ax.set_yscale("logit")
+    ax.grid(which="major", axis="both", alpha=0.7)
+    ax.grid(which="minor", axis="both", alpha=0.3)
+    ax.set_title("CDFs")
+    ax.set_xlabel("q")
+    ax.set_ylabel("CDF")
+    ax.legend()
+    plt.show()
+
+    fig, ax = plt.subplots(figsize=(12, 12))
+    ax.plot(q, np.sort(cdf_of_cdfs), c="C0", label="Markov-MCDF")
+    ax.plot(q, np.sort(cdf_of_cdfs_emp), c="C1", label="Empirical MCDF")
+    # ax.fill_between(
+    #     q,
+    #     np.maximum(1e-8, cdfs_emp_mean - 1.96 * cdfs_emp_std),
+    #     np.minimum(1 - 1e-3, cdfs_emp_mean + 1.96 * cdfs_emp_std),
+    #     alpha=0.3,
+    #     fc="C1",
+    # )
+    # ax.set_xscale("logit")
+    # ax.set_yscale("logit")
     ax.grid(which="major", axis="both", alpha=0.7)
     ax.grid(which="minor", axis="both", alpha=0.3)
     ax.set_title("CDFs")
