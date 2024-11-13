@@ -1,7 +1,9 @@
+from multiprocessing import Pool
 import numpy as np
 from scipy.integrate import quad
 from scipy.optimize import newton
 from scipy.interpolate import RegularGridInterpolator, interp1d
+from scipy.stats import norm
 from tqdm import tqdm
 
 from core.mathematics.functions import expit, logit, sigmoid
@@ -58,7 +60,9 @@ class MarkovMCDF:
                     continue
 
                 def integrand(s):
-                    return self.child.h_cond(t / self.phi_int(s, x), s)
+                    return self.child.h_cond(
+                        t / self.phi_int(s, x, *self.phi_args, **self.phi_kwargs), s
+                    )
 
                 self.h_cond_grid[i, j] = quad(integrand, 0, 1)[0]
 
@@ -93,7 +97,9 @@ class MarkovMCDF:
             for j, x in enumerate(self.x_grid):
 
                 def integrand(s):
-                    return self.child.cdf_cond(t, s) * self.phi(s, x)
+                    return self.child.cdf_cond(t, s) * self.phi(
+                        s, x, *self.phi_args, **self.phi_kwargs
+                    )
 
                 self.cdf_cond_grid[i, j] = quad(integrand, 0, 1)[0]
 
@@ -136,14 +142,16 @@ class MarkovMCDF:
             if x1 >= 1:
                 fp = phi_x_prime(1.0)
                 return 1 + (x1 - 1) * fp
-            return self.phi_int(x1, x2) * x1
+            return self.phi_int(x1, x2, *self.phi_args, **self.phi_kwargs) * x1
 
         def phi_x_prime(x1):
             if x1 < 0:
                 return phi_x_prime(-x1)
             if x1 >= 1.0:
                 return phi_x_prime(1 - 1e-3)
-            return self.phi(x1, x2) * x1 + self.phi_int(x1, x2)
+            return self.phi(
+                x1, x2, *self.phi_args, **self.phi_kwargs
+            ) * x1 + self.phi_int(x1, x2, *self.phi_args, **self.phi_kwargs)
 
         # print(t, x2)
 
@@ -182,13 +190,22 @@ class MarkovMCDF:
 
 class MarkovMCDF_alt:
     def __init__(
-        self, phi: callable, phi_int: callable, order: int, t_bins=15, x_bins=15
+        self,
+        phi: callable,
+        phi_int: callable,
+        order: int,
+        t_bins=15,
+        x_bins=15,
+        phi_args=(),
+        phi_kwargs={},
     ):
         self.phi = phi
         self.phi_int = phi_int
         self.order = order
         self.t_bins = t_bins
         self.x_bins = x_bins
+        self.phi_args = phi_args
+        self.phi_kwargs = phi_kwargs
 
         if order > 1:
             self.child = MarkovMCDF(phi, phi_int, order - 1, t_bins, x_bins)
@@ -217,8 +234,8 @@ class MarkovMCDF_alt:
         self.t_grid = sigmoid(np.linspace(-6, 6, self.t_bins))
         self.x_grid = sigmoid(np.linspace(-6, 6, self.x_bins))
 
-        # Computes the conditional CDF of CDF integration grid
-        print("Computing conditional CDF of CDF integration grid")
+        # Computes the conditional PDF of CDF integration grid
+        print("Computing conditional PDF of CDF integration grid")
         self.h_cond_grid = np.zeros((self.t_bins, self.x_bins))
         for i, t in tqdm(enumerate(self.t_grid), total=self.t_bins):
             for j, x in enumerate(self.x_grid):
@@ -228,7 +245,9 @@ class MarkovMCDF_alt:
                     continue
 
                 def integrand(s):
-                    return self.child.h_cond(t / self.phi_int(s, x), s)
+                    return self.child.h_cond(
+                        t / self.phi_int(s, x, *self.phi_args, **self.phi_kwargs), s
+                    )
 
                 self.h_cond_grid[i, j] = quad(integrand, 0, 1)[0]
 
@@ -270,28 +289,30 @@ class MarkovMCDF_alt:
             if x1 >= 1:
                 fp = phi_x_prime(1.0)
                 return 1 + (x1 - 1) * fp
-            return self.phi_int(x1, x2) * x1
+            return self.phi_int(x1, x2, *self.phi_args, **self.phi_kwargs) * x1
 
         def phi_x_prime(x1):
             if x1 < 0:
                 return phi_x_prime(-x1)
             if x1 >= 1.0:
                 return phi_x_prime(1 - 1e-3)
-            return self.phi(x1, x2) * x1 + self.phi_int(x1, x2)
+            return self.phi(
+                x1, x2, *self.phi_args, **self.phi_kwargs
+            ) * x1 + self.phi_int(x1, x2, *self.phi_args, **self.phi_kwargs)
 
         # print(t, x2)
 
         root = newton(lambda x: phi_x(x) - t, x2, fprime=phi_x_prime, maxiter=100)
         return root
 
-    def cdf(self, x: np.ndarray) -> float:
+    def __cdf_single(self, x: np.ndarray) -> float:
         if len(x) == 1:
             return x[0]
         if np.any(x <= 0.0):
             return 0.0
 
         w = len(x)
-        n = len(self.x_grid)
+        n = self.x_bins
         t_grid = np.zeros((n, w))
         t_grid[:, 0] = 1.0
         x_grid = expit(np.linspace(-10, min(logit(x[0]), 10), n))
@@ -304,12 +325,24 @@ class MarkovMCDF_alt:
                 x_grid[-1] = 1.0
 
             for j, x_j in enumerate(x_grid):
-                phi_int_vals = self.phi(x_grid_last, x_j)
-                vals = t_grid[:, i - 1] * phi_int_vals
+                phi_vals = self.phi(x_grid_last, x_j, *self.phi_args, **self.phi_kwargs)
+                vals = t_grid[:, i - 1] * phi_vals
                 t_grid[j, i] = quad_vals(vals, bins=x_grid_last)
 
         x_grid_last = x_grid
         return quad_vals(t_grid[:, -1], x_grid)
+
+    def cdf(self, x: np.ndarray) -> np.ndarray:
+        if x.ndim == 1:
+            return self.__cdf_single(x)
+
+        params = [
+            (x_i, self.phi, self.x_bins, self.phi_args, self.phi_kwargs) for x_i in x
+        ]
+        with Pool() as pool:
+            return np.array(
+                list(tqdm(pool.imap(cdf_single_params, params), total=len(params)))
+            )
 
     def h_cond(self, t: float, x: float) -> np.ndarray:
         if self.order == 1:
@@ -326,6 +359,39 @@ class MarkovMCDF_alt:
         return self.h_interp([t])[0]
 
 
+def cdf_single_params(params):
+    return cdf_single(*params)
+
+
+def cdf_single(
+    x: np.ndarray, phi: callable, n: int, phi_args: list, phi_kwargs: dict
+) -> float:
+    if len(x) == 1:
+        return x[0]
+    if np.any(x <= 0.0):
+        return 0.0
+
+    w = len(x)
+    t_grid = np.zeros((n, w))
+    t_grid[:, 0] = 1.0
+    x_grid = expit(np.linspace(-10, min(logit(x[0]), 10), n))
+
+    # Compute the conditional CDF for each intermediate variable
+    for i, x_i in enumerate(x[1:], start=1):
+        x_grid_last = x_grid
+        x_grid = expit(np.linspace(-10, min(logit(x_i), 10), n))
+        if x_i == 1.0:
+            x_grid[-1] = 1.0
+
+        for j, x_j in enumerate(x_grid):
+            phi_vals = phi(x_grid_last, x_j, *phi_args, **phi_kwargs)
+            vals = t_grid[:, i - 1] * phi_vals
+            t_grid[j, i] = quad_vals(vals, bins=x_grid_last)
+
+    x_grid_last = x_grid
+    return quad_vals(t_grid[:, -1], x_grid)
+
+
 def quad_vals(vals, bins):
     return np.sum((vals[:-1] + vals[1:]) * np.diff(bins)) / 2
 
@@ -333,6 +399,44 @@ def quad_vals(vals, bins):
 def quad_func(func, bins):
     vals = np.array([func(x) for x in bins])
     return quad_vals(vals, bins)
+
+
+def phi_gaussian(x, y, rho: float) -> float:
+    # if x == 0.0 or y == 0.0 or x == 1.0 or y == 1.0:
+    #     return 0.0 if x != y else np.inf
+    x_z = norm.ppf(x)
+    y_z = norm.ppf(y)
+    return (
+        (1.0 / (2.0 * np.pi * np.sqrt(1.0 - rho**2)))
+        * np.exp(-0.5 * (x_z**2 - 2 * rho * x_z * y_z + y_z**2) / (1 - rho**2))
+        / (norm.pdf(x_z) * norm.pdf(y_z))
+    )
+
+
+@np.vectorize
+def phi_int_gaussian(x, y, rho):
+    """
+    Computes the CDF of X_n given X_{n+1} = y
+
+    Parameters
+    ----------
+    x: float
+        The value of X_n
+    y: float
+        The value of X_{n+1}
+
+    Returns
+    -------
+    float
+        The CDF of X_n given X_{n+1} = y
+    """
+    if y <= 0.0 or x >= 1.0:
+        return 1.0 * (x >= 0.0)
+    if y >= 1.0 or x <= 0.0:
+        return 0.0
+    x_z = norm.ppf(x)
+    y_z = norm.ppf(y)
+    return norm.cdf((x_z - rho * y_z) / np.sqrt(1 - rho**2))
 
 
 if __name__ == "__main__":
@@ -355,65 +459,23 @@ if __name__ == "__main__":
     # plt.yscale("log")
     # plt.ylim(1e-6, 1)
 
-    RHO = 0.5
     W = 2
-
-    @np.vectorize
-    def phi(x, y):
-        if x == 0.0 or y == 0.0 or x == 1.0 or y == 1.0:
-            return 0.0 if x != y else np.inf
-        x_z = norm.ppf(x)
-        y_z = norm.ppf(y)
-        return (
-            (1.0 / (2.0 * np.pi * np.sqrt(1.0 - RHO**2)))
-            * np.exp(-0.5 * (x_z**2 - 2 * RHO * x_z * y_z + y_z**2) / (1 - RHO**2))
-            / (norm.pdf(x_z) * norm.pdf(y_z))
-        )
-
-    @np.vectorize
-    def phi_int(x, y):
-        """
-        Computes the CDF of X_n given X_{n+1} = y
-
-        Parameters
-        ----------
-        x: float
-            The value of X_n
-        y: float
-            The value of X_{n+1}
-
-        Returns
-        -------
-        float
-            The CDF of X_n given X_{n+1} = y
-        """
-        if y <= 0.0 or x >= 1.0:
-            return 1.0 * (x >= 0.0)
-        if y >= 1.0 or x <= 0.0:
-            return 0.0
-        x_z = norm.ppf(x)
-        y_z = norm.ppf(y)
-        return norm.cdf((x_z - RHO * y_z) / np.sqrt(1 - RHO**2))
-
-    def gaussian_ar1(n, w, rho):
-        x = np.random.normal(0, 1, size=(n, w))
-        for i in range(1, w):
-            x[:, i] = rho * x[:, i - 1] + x[:, i] * np.sqrt(1 - rho**2)
-        return norm.cdf(x)
-
     RHO = 0.7
     N = 1_000
+
     samples = gaussian_ar1(N, W, RHO)
     x_bins = np.linspace(0, 1, 21)
     y_bins = np.linspace(0, 1, 21)
     x_c = x_bins[:-1] + np.diff(x_bins) / 2
     y_c = y_bins[:-1] + np.diff(y_bins) / 2
     xx, yy = np.meshgrid(x_c, y_c)
-    phi_xy = np.array([phi(x_i, y_i) for x_i, y_i in zip(xx.ravel(), yy.ravel())])
+    phi_xy = np.array(
+        [phi_gaussian(x_i, y_i, RHO) for x_i, y_i in zip(xx.ravel(), yy.ravel())]
+    )
     phi_xy = phi_xy.reshape(xx.shape)
 
     phi_int_xy = np.array(
-        [phi_int(x_i, y_i) for x_i, y_i in zip(xx.ravel(), yy.ravel())]
+        [phi_int_gaussian(x_i, y_i, RHO) for x_i, y_i in zip(xx.ravel(), yy.ravel())]
     )
     phi_int_xy = phi_int_xy.reshape(xx.shape)
 
@@ -444,14 +506,18 @@ if __name__ == "__main__":
 
     plt.show()
 
-    markov = MarkovMCDF_alt(phi, phi_int, W, 101, 101)
+    markov = MarkovMCDF_alt(
+        phi_gaussian, phi_int_gaussian, W, 21, 21, phi_kwargs={"rho": RHO}
+    )
     markov.fit()
     markov_ = markov
+    markov_.t_bins = 101
+    markov_.x_bins = 101
 
     t = 0.7
 
     q = (np.arange(N) + 1) / (N + 1)
-    cdfs = np.array([markov_.cdf(x_i) for x_i in tqdm(samples, total=N)])
+    cdfs = markov_.cdf(samples)
     cdfs_emp = np.array(
         [(samples < x_i[None, :]).all(axis=1).mean() for x_i in samples]
     )
