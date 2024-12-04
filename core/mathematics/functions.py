@@ -214,7 +214,6 @@ def log_sged(x, mu: float, sigma: float, lamb: float, p: float):
     )
 
 
-@np.vectorize
 def sged_cdf(x, mu, sigma, lamb, p):
     """
     Cumulative distribution function of the SGED distribution.
@@ -239,152 +238,12 @@ def sged_cdf(x, mu, sigma, lamb, p):
     """
     v, m, g1p = sged_pseudo_params(mu, sigma, lamb, p)
     sigma_ = v * sigma * (1 + lamb * np.sign(x - mu + m))
+    sigma_minus = v * sigma * (1 - lamb)
     x_ = np.abs(x - mu + m) / sigma_
-    x_lim = np.log(__TOLERANCE / __FLOAT_PRECISION) ** (1 / p)
+    s = np.sign(x - mu + m)
+    c = p / (2 * v * sigma)
 
-    if x_ <= x_lim:
-        return __sged_cdf_series(x, mu, sigma, lamb, p, v, m, g1p, tol=__TOLERANCE)
-    else:
-        return __sged_cdf_series_large(x, mu, sigma, lamb, p, v, m, g1p)
-
-
-def sged_cdf_int(x, mu, sigma, lamb, p):
-    """
-    Cumulative distribution function of the SGED distribution.
-
-    Parameters
-    ----------
-    x : float
-        Value at which to evaluate the CDF.
-    mu : float
-        Location parameter.
-    sigma : float
-        Scale parameter.
-    lamb : float
-        Asymmetry parameter.
-    p : float
-        Shape parameter.
-
-    Returns
-    -------
-    float
-        Value of the CDF at x.
-    """
-    return quad(sged, -np.inf, x, args=(mu, sigma, lamb, p))[0]
-
-
-@np.vectorize
-def __sged_cdf_series(x, mu, sigma, lamb, p, v, m, g1p, tol=1e-15):
-    """
-    Cumulative distribution function of the SGED distribution.
-    This method uses the Taylor series expansion of the CDF.
-
-    Parameters
-    ----------
-    x : array of floats
-        Values at which to evaluate the CDF.
-    mu : array of floats
-        Location parameter.
-    sigma : array of floats
-        Scale parameter.
-    lamb : array of floats
-        Asymmetry parameter.
-    p : array of floats
-        Shape parameter.
-
-    Returns
-    -------
-    array of floats
-        Values of the CDF at x.
-    """
-    # Center the data
-    x_centered = x - mu + m
-    x_sgn = np.sign(x_centered)
-    x_abs = np.abs(x_centered)
-
-    alpha = p / (2 * v * sigma * g1p)  # Coefficient in front of the exponential term
-    sigma_ = (
-        v * sigma * (1 + lamb * x_sgn)
-    )  # Apparent scale parameter in the exponential term
-    x_norm = x_abs / sigma_
-
-    # Initial values of the accumulators
-    xp = x_norm**p
-    F0 = (1 - lamb) / 2  # Initial value of the CDF at the mode x=mu+m
-
-    k = 0.0
-    ele = 1.0
-    prod = 1.0
-    series = 0.0
-
-    # Compute the series expansion until the additional term is smaller than the tolerance
-    while np.abs(ele) > tol and k < 100:
-        ele = prod / (k * p + 1)
-        series += ele
-        k += 1
-
-        prod /= k  # k!
-        prod *= -1  # (-1)^k
-        prod *= xp  # x^p^k
-
-    return F0 + alpha * x_centered * series
-
-
-@np.vectorize
-def __sged_cdf_series_large(x, mu, sigma, lamb, p, v, m, g1p):
-    """
-    Cumulative distribution function of the SGED distribution.
-    This method uses integration by parts and discards the residuals after
-    two iterations of the asymptotic expansion.
-    This is accurate only for large values of x.
-
-    Parameters
-    ----------
-    x : array of floats
-        Values at which to evaluate the CDF.
-    mu : array of floats
-        Location parameter.
-    sigma : array of floats
-        Scale parameter.
-    lamb : array of floats
-        Asymmetry parameter.
-    p : array of floats
-        Shape parameter.
-    v : array of floats
-        Pseudo parameter `v`.
-    m : array of floats
-        Pseudo parameter `m`.
-    g1p : array of floats
-        Gamma(1/p).
-
-    Returns
-    -------
-    array of floats
-        Values of the CDF at x.
-    """
-    # Center the data and use the pseudo-symmetry of the distribution (upper-tail)
-    x_centered = x - mu + m
-    x_sgn = np.sign(x_centered)
-    x_abs = np.abs(x_centered)
-
-    alpha = p / (2 * v * sigma * g1p)
-    sigma_ = v * sigma * (1 + lamb * x_sgn)
-    x_norm = x_abs / sigma_
-
-    # Computes the first two terms of the asymptotic expansion
-    series = (
-        np.exp(-(x_norm**p))
-        * (alpha * sigma_)
-        * (
-            1 / (p * x_norm ** (p - 1))
-            - 1 / (p**2 * (p - 1) * (1 + x_norm ** (p - 1)) * x_norm ** (2 * p))
-        )
-    )
-
-    if x_sgn > 0:
-        return 1 - series
-    else:
-        return series
+    return (c / p) * (sigma_minus + s * sigma_ * special.gammainc(1 / p, x_**p))
 
 
 def sged_ppf_pwl_approximation(q, mu, sigma, lamb, p, n_pwl=1001):
@@ -432,6 +291,43 @@ def sged_ppf_pwl_approximation(q, mu, sigma, lamb, p, n_pwl=1001):
 
     # Compute the quantiles
     return np.interp(q, Fi, xi)
+
+
+def sged_ppf(q, mu, sigma, lamb, p):
+    """
+    Percent point function of the SGED distribution.
+    This method uses a piecewise linear approximation of the CDF.
+
+    Parameters
+    ----------
+    q : array of floats
+        Quantiles at which to evaluate the PPF.
+    mu : array of floats
+        Location parameter.
+    sigma : array of floats
+        Scale parameter.
+    lamb : array of floats
+        Asymmetry parameter.
+    p : array of floats
+        Shape parameter.
+
+    Returns
+    -------
+    array of floats
+        Values of the PPF at q.
+    """
+    v, m, g1p = sged_pseudo_params(mu, sigma, lamb, p)
+    sigma_minus = v * sigma * (1 - lamb)
+    c = p / (2 * v * sigma * g1p)
+    q0 = c * sigma_minus / p * g1p
+    s = np.sign(q - q0)
+
+    sigma_ = v * sigma * (1 + lamb * s)
+    q_ = s * ((q - q0) * p / c) / sigma_
+    x_ = special.gammaincinv(1 / p, q_ / g1p) ** (1 / p)
+    mode = mu - m
+
+    return mode + s * sigma_ * x_
 
 
 @np.vectorize

@@ -11,6 +11,8 @@
 
 import time
 
+import numpy as np
+
 MASK = "%duration"
 
 
@@ -40,6 +42,8 @@ class Timer:
         self.elapsed_time = self.end_time - self.start_time
 
     def get_elapsed_time(self):
+        if self.elapsed_time is None:
+            return time.time() - self.start_time
         return self.elapsed_time
 
     def reset(self):
@@ -57,3 +61,35 @@ class Timer:
             return f"{time * 1e3:.2f} ms"
 
         return f"{time:.3f} seconds"
+
+
+def chrono(f: callable, nit: int = 10, *args, **kwargs):
+    """Chronometer for a function.
+
+    Parameters
+    ----------
+    f : callable
+        Function to be timed.
+    nit : int, optional
+        Number of iterations. The default is 10.
+    *args : list
+        Positional arguments for the function.
+    **kwargs : dict
+        Keyword arguments for the function.
+
+    Returns
+    -------
+    mean : float
+        Mean execution time.
+    std : float
+        Standard deviation of the execution time.
+    """
+    execution_times = np.zeros(nit)
+    for i in range(nit):
+        start = time.time()
+        f(*args, **kwargs)
+        execution_times[i] = time.time() - start
+
+    mean = np.mean(execution_times)
+    std = np.std(execution_times) if nit > 1 else np.nan
+    return mean, std

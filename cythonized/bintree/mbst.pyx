@@ -193,6 +193,28 @@ cdef split_tree(Tree tree, int axis):
     node = TreeNode(axis, split_value, dimensions, left_tree, right_tree)
     tree.node = node
 
+cpdef long long[:] count_points_array(double[:, :] data, double[:, :] points):
+    cdef long i, j, k, n_data, n_points, dimensions, count
+    cdef long long[:] counts
+
+    counts = np.zeros((points.shape[0],), dtype=np.int64)
+    
+    count = 0
+    n_data = data.shape[0]
+    n_points = points.shape[0]
+    dimensions = data.shape[1]
+    i_start = 0
+
+    for i in range(n_points):
+        count = 0
+        for j in range(n_data):
+            for k in range(dimensions):
+                if data[j, k] > points[i, k]:
+                    break
+            else:
+                count += 1
+        counts[i] = count
+    return counts
 
 cdef int count_points_leaf(Tree tree, double* point):
     cdef int count, i, j, i_start, k

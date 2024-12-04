@@ -194,7 +194,9 @@ class HarmonicDistribution:
         array-like
             The random variates.
         """
-        raise NotImplementedError("The method rvs is not implemented.")
+        t = np.array(t)
+        q = np.random.rand(*t.shape)
+        return self.ppf(t, q)
 
     def fit(self, t: list, x: list):
         """Fit the distribution to the data.

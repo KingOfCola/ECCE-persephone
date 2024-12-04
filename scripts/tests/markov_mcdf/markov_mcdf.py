@@ -441,6 +441,95 @@ def phi_int_gaussian(x, y, rho):
     return norm.cdf((y_z - rho * x_z) / np.sqrt(1 - rho**2))
 
 
+def phi_mecdf(x, y, mecdf: callable, delta=1e-3):
+    x1 = np.clip(x - delta / 2, 0, 1)
+    x2 = np.clip(x + delta / 2, 0, 1)
+    y1 = np.clip(y - delta / 2, 0, 1)
+    y2 = np.clip(y + delta / 2, 0, 1)
+    ones = np.ones_like(x1)
+    dx = mecdf(np.array([x2, ones]).T) - mecdf(np.array([x1, ones]).T)
+    dy = mecdf(np.array([ones, y2]).T) - mecdf(np.array([ones, y1]).T)
+
+    return (
+        mecdf(np.array([x2, y2]).T)
+        - mecdf(np.array([x2, y1]).T)
+        - mecdf(np.array([x1, y2]).T)
+        + mecdf(np.array([x1, y1]).T)
+    ) / (dx * dy)
+
+
+def phi_int_mecdf(x, y, mecdf: callable, delta=1e-3):
+    x1 = np.clip(x - delta / 2, 0, 1)
+    x2 = np.clip(x + delta / 2, 0, 1)
+    ones = np.ones_like(x1)
+    dx = mecdf(np.array([x2, ones]).T) - mecdf(np.array([x1, ones]).T)
+    return (mecdf(np.array([x2, y]).T) - mecdf(np.array([x1, y]).T)) / dx
+
+
+class MarkovMECDF:
+    def __init__(self, mcdf, bins=101, delta=1e-3, xmin: float = 1e-5):
+        self.bins = bins
+        self.delta = delta
+        self.xmin = xmin
+        self.xbins = expit(np.linspace(logit(xmin), 1 - logit(xmin), bins))
+        self.xbins = np.concatenate(([0.0], self.xbins, [1.0]))
+        xx, yy = np.meshgrid(self.xbins, self.xbins)
+
+        self.phi_grid = phi_mecdf(xx.ravel(), yy.ravel(), mcdf, delta=delta).reshape(
+            xx.shape
+        )
+        self.normalize_grid()
+        self.phi_int_grid = phi_int_mecdf(
+            xx.ravel(), yy.ravel(), mcdf, delta=delta
+        ).reshape(xx.shape)
+
+    def normalize_grid(self):
+        for i, _ in enumerate(self.xbins):
+            self.phi_grid[i, :] /= quad_vals(self.phi_grid[i, :], self.xbins)
+
+    def phi(self, x, y):
+        i_x = np.searchsorted(self.xbins, x, side="right") - 1
+        i_y = np.searchsorted(self.xbins, y, side="right") - 1
+        x1 = self.xbins[i_x]
+        x2 = self.xbins[i_x + 1]
+        y1 = self.xbins[i_y]
+        y2 = self.xbins[i_y + 1]
+        dx = (x - x1) / (x2 - x1)
+        dy = (y - y1) / (y2 - y1)
+
+        return (
+            self.phi_grid[i_x, i_y] * (1 - dx) * (1 - dy)
+            + self.phi_grid[i_x + 1, i_y] * dx * (1 - dy)
+            + self.phi_grid[i_x, i_y + 1] * (1 - dx) * dy
+            + self.phi_grid[i_x + 1, i_y + 1] * dx * dy
+        )
+
+    def phi_int(self, x, y):
+        i_x = np.searchsorted(self.xbins, x, side="right") - 1
+        i_y = np.searchsorted(self.xbins, y, side="right") - 1
+        x1 = self.xbins[i_x]
+        x2 = self.xbins[i_x + 1]
+        y1 = self.xbins[i_y]
+        y2 = self.xbins[i_y + 1]
+        dx = (x - x1) / (x2 - x1)
+        dy = (y - y1) / (y2 - y1)
+
+        return (
+            self.phi_int_grid[i_x, i_y] * (1 - dx) * (1 - dy)
+            + self.phi_int_grid[i_x + 1, i_y] * dx * (1 - dy)
+            + self.phi_int_grid[i_x, i_y + 1] * (1 - dx) * dy
+            + self.phi_int_grid[i_x + 1, i_y + 1] * dx * dy
+        )
+
+
+def phi_int_markov(x, y, markov_mecdf: MarkovMECDF):
+    return markov_mecdf.phi_int(x, y)
+
+
+def phi_markov(x, y, markov_mecdf: MarkovMECDF):
+    return markov_mecdf.phi(x, y)
+
+
 if __name__ == "__main__":
     from scipy.stats import norm
     import numpy as np

@@ -1,32 +1,31 @@
 # -*-coding:utf-8 -*-
 """
-@File    :   sged.py
+@File    :   poisson.py
 @Time    :   2024/07/05 12:15:44
 @Author  :   Urvan Christen
 @Version :   1.0
 @Contact :   urvan.christen@gmail.com
-@Desc    :   This script contains the functions for the SGED distribution.
+@Desc    :   This script contains the functions for the Poisson Harmonic distribution.
 """
 
 
 import numpy as np
 from scipy.optimize import minimize
+from scipy.stats import poisson
 
 from core.distributions.base.dist import HarmonicDistribution, DiscreteDistributionError
 from core.mathematics.harmonics import harmonics_valuation
-from core.mathematics.functions import log_sged, selu, sged, sged_cdf, sged_ppf
+from core.mathematics.functions import selu
 
 
-class HarmonicSGED(HarmonicDistribution):
+class PoissonHarmonics(HarmonicDistribution):
     PARAMETER_TOL = 1e-6
 
     def __init__(
         self,
-        mu: float | None = None,
-        sigma: float | None = None,
         lamb: float | None = None,
-        p: float | None = None,
         n_harmonics: int | None = None,
+        trend: int = 0,
         period: float = 1.0,
         n_pwl: int = 1001,
     ):
@@ -54,51 +53,23 @@ class HarmonicSGED(HarmonicDistribution):
             Number of points to consider in the cdf piecewise linear approximation, by default 1001
         """
         super().__init__(period)
-        self._mu = None
-        self._sigma = None
         self._lamb = None
-        self._p = None
 
-        self.mu = mu
-        self.sigma = sigma
-        self.lamb = lamb
-        self.p = p
+        self.lamb_h = lamb
+        self.lamb_t = None
         self.n_harmonics = n_harmonics
         self.n_pwl = n_pwl
+        self.trend_points = trend
 
         self.fit_summary = None
 
     @property
-    def mu(self):
-        return self._mu
-
-    @mu.setter
-    def mu(self, mu: float | None):
-        self._mu = mu
-
-    @property
-    def sigma(self):
-        return self._sigma
-
-    @sigma.setter
-    def sigma(self, sigma: float | None):
-        self._sigma = sigma
-
-    @property
-    def lamb(self):
+    def lamb_h(self):
         return self._lamb
 
-    @lamb.setter
-    def lamb(self, lamb: float | None):
+    @lamb_h.setter
+    def lamb_h(self, lamb: float | None):
         self._lamb = lamb
-
-    @property
-    def p(self):
-        return self._p
-
-    @p.setter
-    def p(self, p: float | None):
-        self._p = p
 
     def cdf(self, t: float, x: float) -> float:
         """Cumulative distribution function.
@@ -119,9 +90,9 @@ class HarmonicSGED(HarmonicDistribution):
             raise DiscreteDistributionError("The distribution is not fitted.")
 
         # Evaluate the parameters at the timepoints
-        mu, sigma, lamb, p = self.param_valuation(t)
+        lamb = self.param_valuation(t)
 
-        return sged_cdf(x, mu=mu, sigma=sigma, lamb=lamb, p=p)
+        return poisson.cdf(x, lamb)
 
     def pdf(self, t: float, x: float) -> float:
         """Probability density function.
@@ -142,9 +113,9 @@ class HarmonicSGED(HarmonicDistribution):
             raise DiscreteDistributionError("The distribution is not fitted.")
 
         # Evaluate the parameters at the timepoints
-        mu, sigma, lamb, p = self.param_valuation(t)
+        lamb = self.param_valuation(t)
 
-        return sged(x, mu=mu, sigma=sigma, lamb=lamb, p=p)
+        return poisson.pmf(x, lamb)
 
     def ppf(self, t: float, q: float) -> float:
         """Percent point function.
@@ -164,17 +135,9 @@ class HarmonicSGED(HarmonicDistribution):
         if not self._isfit():
             raise DiscreteDistributionError("The distribution is not fitted.")
 
-        if np.isscalar(t) and np.isscalar(q):
-            # Evaluate the parameters at the timepoints
-            return self.ppf(np.array([t]), np.array([q]))[0]
-
         # Evaluate the parameters at the timepoints
-        mu, sigma, lamb, p = self.param_valuation(t)
-
-        if np.isscalar(q):
-            q = np.full_like(t, q)
-
-        return sged_ppf(q, mu=mu, sigma=sigma, lamb=lamb, p=p)
+        lamb = self.param_valuation(t)
+        return poisson.ppf(q, lamb)
 
     def fit(self, t: np.ndarray, x: np.ndarray):
         """Fit the distribution to the data.
@@ -194,16 +157,18 @@ class HarmonicSGED(HarmonicDistribution):
         x = x[where]
 
         # Fit the distribution
-        self.fit_summary = HarmonicSGED._maximize_llhood_sged_harmonics(
-            t / self.period, x, self.n_harmonics
+        self.fit_summary = PoissonHarmonics._maximize_llhood_poisson_harmonics(
+            t / self.period, x, self.n_harmonics, self.trend_points
         )
 
         # Extract the parameters
-        self.mu, self.sigma, self.lamb, self.p = HarmonicSGED._split_params(
+        self.lamb_h, self.lamb_t = PoissonHarmonics._split_params(
             self.fit_summary.x, n_harmonics=self.n_harmonics
         )
+        self.t0 = self.fit_summary.t0
+        self.step = self.fit_summary.step
 
-    def param_valuation(self, t: float) -> list:
+    def param_valuation(self, t: float, which=None) -> list:
         """Compute the actual value of the parameters for each timepoint.
 
         Parameters
@@ -225,13 +190,40 @@ class HarmonicSGED(HarmonicDistribution):
         if not self._isfit():
             raise DiscreteDistributionError("The distribution is not fitted.")
 
-        return HarmonicSGED._evaluate_params(
-            self.mu, self.sigma, self.lamb, self.p, t=t, period=self.period
-        )
+        match which:
+            case "periodicity":
+                return PoissonHarmonics._evaluate_periodicity(
+                    lamb_h=self.lamb_h,
+                    lamb_t=self.lamb_t,
+                    t=t,
+                    period=self.period,
+                    t0=self.t0,
+                    step=self.step,
+                )
+
+            case "trend":
+                return PoissonHarmonics._evaluate_trend(
+                    lamb_h=self.lamb_h,
+                    lamb_t=self.lamb_t,
+                    t=t,
+                    period=self.period,
+                    t0=self.t0,
+                    step=self.step,
+                )
+
+            case _:
+                return PoissonHarmonics._evaluate_params(
+                    lamb_h=self.lamb_h,
+                    lamb_t=self.lamb_t,
+                    t=t,
+                    period=self.period,
+                    t0=self.t0,
+                    step=self.step,
+                )
 
     @staticmethod
-    def _maximize_llhood_sged_harmonics(
-        t: np.ndarray, x: np.ndarray, n_harmonics: int
+    def _maximize_llhood_poisson_harmonics(
+        t: np.ndarray, x: np.ndarray, n_harmonics: int, trend_points: int
     ) -> dict:
         """
         Finds parameters maximizing the loglikelihood of the SGED with parameters
@@ -247,28 +239,39 @@ class HarmonicSGED(HarmonicDistribution):
         n_harmonics : int
             Number of harmonics to consider. Zero corresponds to constant parameters (i.e.
             no time dependence)
+        trend_points : int
+            Number of trend points to consider.
 
         Returns
         -------
         summary : dict
             `popt = popt_["x"]` contains the optimal fit parameters. If `p = 2 * n_harmonics + 1`, then
-            `popt[:p] contains the fit of the `mu` parameter.
-            `popt[p:2*p] contains the fit of the `sigma` parameter.
-            `popt[2*p:3*p] contains the fit of the `lambda` parameter.
-            `popt[3*p:] contains the fit of the `p` parameter.
+            `popt[:p] contains the fit of the `lambda` parameter.
+            `popt[p:p+trend] contains the fit of the `lambda` trend parameter.
             For each parameter, the array of `p` elements models the parameter as:
             `theta(t) = popt[0] + sum(popt[2*k-1] * cos(2 * pi * k * t) + popt[2*k] * sin(2 * pi * k * t) for k in range(n_harmonics))`
         """
         # Initial guess for the parameters (constant parameters, mu=0, sigma=1, lambda=0, p=2)
-        p0_const = (np.mean(x), np.std(x), 0, 2)
-        p0 = tuple(np.concatenate([[p] + [0] * (2 * n_harmonics) for p in p0_const]))
+        p0_const = (np.mean(x),)
+        p0 = tuple(
+            np.concatenate(
+                [[p] + [0] * (2 * n_harmonics) for p in p0_const]
+                + [np.zeros(trend_points)]
+            )
+        )
+
+        t0 = t[0]
+        step = (t[-1] - t0) / trend_points if trend_points > 0 else 1.0
 
         # Mimimize the negative loglikelihood
-        return minimize(
-            fun=HarmonicSGED._neg_llhood,
+        summary = minimize(
+            fun=PoissonHarmonics._neg_llhood,
             x0=p0,
-            args=(t, x, n_harmonics),
+            args=(t, x, n_harmonics, 1.0, t0, step),
         )
+        summary.t0 = t0
+        summary.step = step
+        return summary
 
     @staticmethod
     def _neg_llhood(
@@ -277,6 +280,8 @@ class HarmonicSGED(HarmonicDistribution):
         x: np.ndarray,
         n_harmonics: int,
         period: float = 1.0,
+        t0: float = 0.0,
+        step: float = 1.0,
     ) -> float:
         """Negative loglikelihood of the SGED distribution.
 
@@ -301,41 +306,30 @@ class HarmonicSGED(HarmonicDistribution):
             no time dependence)
         period : float, optional
             Period of the harmonics, by default 1.0.
+        t0 : float, optional
+            Initial timepoint of the trend, by default 0.0.
+        step : float, optional
+            Step of the trend, by default 1.0.
 
         Returns
         -------
         float
-            Negative loglikelihood of the SGED distribution.
+            Negative loglikelihood of the Poisson distribution.
         """
         # Evaluate the parameters at each timepoint
-        mu_h, sigma_h, lamb_h, p_h = HarmonicSGED._split_params(
-            params, n_harmonics=n_harmonics
-        )
-        mu, sigma, lamb, p = HarmonicSGED._evaluate_params(
-            mu_h, sigma_h, lamb_h, p_h, t=t, period=period
+        lamb_h, lamb_t = PoissonHarmonics._split_params(params, n_harmonics=n_harmonics)
+        lamb = PoissonHarmonics._evaluate_params(
+            lamb_h, lamb_t, t=t, period=period, t0=t0, step=step
         )
 
         # Compute the negative loglikelihood
-        return -np.sum(
-            log_sged(
-                x,
-                mu=mu,
-                sigma=sigma,
-                lamb=lamb,
-                p=p,
-            )
-        )
+        return -np.sum(np.log(poisson.pmf(x, lamb)))
 
     @staticmethod
-    def _evaluate_params(mu_h, sigma_h, lamb_h, p_h, t, period):
-        mu_t, sigma_t, lamb_t, p_t = harmonics_valuation(
-            mu_h, sigma_h, lamb_h, p_h, t=t, period=period
-        )
-
-        mu = mu_t
-        sigma = selu(sigma_t)
-        lamb = np.tanh(lamb_t)
-        p = selu(p_t)
+    def _evaluate_params(lamb_h, lamb_t, t, period, t0, step) -> np.ndarray:
+        lamb_period = harmonics_valuation(lamb_h, t=t, period=period)
+        lamb_trend = trend_valuation(lamb_t, t=t, t0=t0, step=step)
+        lamb = lamb_trend + selu(lamb_period)
         # mu = mu_t
         # sigma = np.clip(sigma_t, HarmonicSGED.PARAMETER_TOL, None)
         # lamb = np.clip(
@@ -343,7 +337,19 @@ class HarmonicSGED(HarmonicDistribution):
         # )
         # p = np.clip(p_t, HarmonicSGED.PARAMETER_TOL, None)
 
-        return mu, sigma, lamb, p
+        return lamb
+
+    @staticmethod
+    def _evaluate_periodicity(lamb_h, lamb_t, t, period, t0, step) -> np.ndarray:
+        lamb_period = harmonics_valuation(lamb_h, t=t, period=period)
+        lamb = selu(lamb_period)
+        return lamb
+
+    @staticmethod
+    def _evaluate_trend(lamb_h, lamb_t, t, period, t0, step) -> np.ndarray:
+        lamb_trend = trend_valuation(lamb_t, t=t, t0=t0, step=step)
+        lamb = lamb_trend
+        return lamb
 
     @staticmethod
     def _split_params(params: np.ndarray, n_harmonics: int) -> tuple:
@@ -353,7 +359,8 @@ class HarmonicSGED(HarmonicDistribution):
         ----------
         params : array of floats
             Parameters of the distribution. The array should have a shape of
-            `2 * n_harmonics + 1`, where `n_harmonics` is the number of harmonics to consider.
+            `2 * n_harmonics + 1 + trend`, where `n_harmonics` is the number of harmonics to consider.
+            `trend` is the number of trend points to consider.
             The parameters are cyclicly dependent on time, with `n_harmonics` harmonics
             considered.
             The first element `params[0]` of the encoding is the constant term, and the
@@ -362,15 +369,17 @@ class HarmonicSGED(HarmonicDistribution):
 
         n_harmonics : int
             Number of harmonics to consider.
+        trend : int
+            Number of trend points to consider.
 
         Returns
         -------
         tuple of arrays of floats
             The parameters split into the harmonics. The tuple contains the harmonics of
-            the `mu`, `sigma`, `lambda`, and `p` parameters.
+            the `lambda` parameters and the trend points.
         """
         p = 2 * n_harmonics + 1
-        return params[:p], params[p : 2 * p], params[2 * p : 3 * p], params[3 * p :]
+        return params[:p], params[p:]
 
     def _isfit(self) -> bool:
         """Check if the distribution is fitted.
@@ -380,6 +389,37 @@ class HarmonicSGED(HarmonicDistribution):
         bool
             True if the distribution is fitted, False otherwise.
         """
-        return all(
-            param is not None for param in [self.mu, self.sigma, self.lamb, self.p]
-        )
+        return all(param is not None for param in [self.lamb_h, self.lamb_t])
+
+
+def trend_valuation(
+    lamb_t: np.ndarray, t: np.ndarray, t0: float = 0.0, step: float = 1.0
+):
+    """
+    Evaluate the trend parameters at the timepoints.
+
+    Parameters
+    ----------
+    lamb_t : array of floats
+        Trend parameters. It should have a shape of (trend,).
+    t : array of floats
+        Timepoints at which the trend parameters should be evaluated.
+    t0 : float, optional
+        Initial timepoint of the trend, by default 0.0.
+    step : float, optional
+        Step of the trend, by default 1.0.
+
+    Returns
+    -------
+    array of floats
+        Actual values of the trend parameters for each timepoint.
+    """
+    if len(lamb_t) == 0:
+        return np.zeros_like(t)
+
+    lamb_t = np.concatenate([np.zeros(1), lamb_t])
+    t = np.array(t)
+    tp = t0 + np.arange(len(lamb_t)) * step
+    yp = lamb_t
+
+    return np.interp(t, tp, yp, left=yp[0], right=yp[-1])

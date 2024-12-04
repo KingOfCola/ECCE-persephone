@@ -153,9 +153,9 @@ class HarmonicMultiBernoulli(HarmonicDistribution):
         float-like
             The value of the ppf at q.
         """
-        raise DiscreteDistributionError(
-            "The method ppf is not available for discrete distributions."
-        )
+        p = self.param_valuation(t)
+        cp = np.cumsum(p, axis=0)
+        return (cp < q[None, :]).sum(axis=0)
 
     def rvs(self, t: float) -> float:
         """Random variates.
@@ -170,9 +170,8 @@ class HarmonicMultiBernoulli(HarmonicDistribution):
         float-like
             The random variate generated.
         """
-        p = self.param_valuation(t)
-        cp = np.cumsum(p, axis=0)
-        return (np.random.rand(1, *t.shape) < cp).sum(axis=0)
+        q = np.random.rand(*t.shape)
+        return self.ppf(t, q)
 
     def fit(self, t: float, x: float):
         """Fit the distribution to the data.
@@ -187,7 +186,11 @@ class HarmonicMultiBernoulli(HarmonicDistribution):
         x = np.array(x, dtype=int)
         self._check_values_validity(x)
         summary = HarmonicMultiBernoulli._fit_harmonics(
-            t=t / self.period, x=x, n_harmonics=self.n_harmonics, n_levels=self.n_levels, kernel_func=self._kernel_func
+            t=t / self.period,
+            x=x,
+            n_harmonics=self.n_harmonics,
+            n_levels=self.n_levels,
+            kernel_func=self._kernel_func,
         )
         self.mus = summary.mus
         self.fit_summary = summary

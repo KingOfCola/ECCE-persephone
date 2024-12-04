@@ -127,9 +127,7 @@ def __make_model(model_type: str, **kwargs) -> HarmonicDistribution:
     raise ValueError(f"Invalid model type {model_type}")
 
 
-def __make_harmonic_sged(
-    n_harmonics: int = 2, step: float = 5.0, **kwargs
-) -> HarmonicDistribution:
+def __make_harmonic_sged(**kwargs) -> HarmonicDistribution:
     return Pipe(
         TrendRemoval(step=kwargs.get("step", 5)),
         HarmonicSGED(n_harmonics=kwargs.get("n_harmonics", 2)),

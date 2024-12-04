@@ -6,6 +6,7 @@ from scripts.tests.markov_mcdf.markov_mcdf import (
     phi_gaussian,
     phi_int_gaussian,
 )
+from utils.paths import output
 from copy import copy
 
 
@@ -17,9 +18,11 @@ def gaussian_ar1(n, w, rho):
 
 
 if __name__ == "__main__":
+    OUT_DIR = output("Material/MCDF/Markov-MCDF")
+    OUT_DIR.mkdir(exist_ok=True, parents=True)
 
-    W = 2
-    N = 1_000
+    W = 4
+    N = 10_000
     RHO = 0.7
 
     samples = gaussian_ar1(N, W, RHO)
@@ -29,12 +32,9 @@ if __name__ == "__main__":
     y_c = y_bins[:-1] + np.diff(y_bins) / 2
     xx, yy = np.meshgrid(x_c, y_c)
     markov = MarkovMCDF_alt(
-        phi_gaussian, phi_int_gaussian, W, 21, 21, phi_kwargs={"rho": RHO}
+        phi_gaussian, phi_int_gaussian, W, 101, 101, phi_kwargs={"rho": RHO}
     )
-    markov.fit()
     markov_ = markov
-    markov_.t_bins = 101
-    markov_.x_bins = 101
 
     phi_xy = np.array(
         [phi_gaussian(x_i, y_i, rho=RHO) for x_i, y_i in zip(xx.ravel(), yy.ravel())]
@@ -49,20 +49,13 @@ if __name__ == "__main__":
     cdfs_emp_mean = np.sort(cdfs_emp)
     cdfs_emp_std = np.sqrt(cdfs_emp_mean * (1 - cdfs_emp_mean) / N)
 
-    cdf_of_cdfs = np.array([markov_.h(c_i) for c_i in cdfs])
-    cdf_of_cdfs_emp = np.array([markov_.h(c_i) for c_i in cdfs_emp])
-    # cdfs_cond = np.array([markov_.cdf_cond(t, x_i[1]) for x_i in samples])
-
-    # cdfs_cond = np.array([markov_.cdf_cond(t, x_i[1]) for x_i in samples])
-    t = 0.7
-
     fig, ax = plt.subplots(figsize=(12, 12))
-    ax.plot(q, np.sort(cdfs), c="C0", label="Markov-MCDF")
-    ax.plot(q, cdfs_emp_mean, c="C1", label="Empirical MCDF")
-    ax.fill_between(
+    ax.plot(np.sort(cdfs), q, c="C0", label="Markov-MCDF")
+    ax.plot(cdfs_emp_mean, q, c="C1", label="Empirical MCDF")
+    ax.fill_betweenx(
         q,
-        np.maximum(1e-8, cdfs_emp_mean - 1.96 * cdfs_emp_std),
-        np.minimum(1 - 1e-3, cdfs_emp_mean + 1.96 * cdfs_emp_std),
+        np.clip(cdfs_emp_mean - 1.96 * cdfs_emp_std, 1e-5, 1 - 1e-3),
+        np.clip(cdfs_emp_mean + 1.96 * cdfs_emp_std, 1e-5, 1 - 1e-3),
         alpha=0.3,
         fc="C1",
     )
@@ -71,11 +64,19 @@ if __name__ == "__main__":
     ax.grid(which="major", axis="both", alpha=0.7)
     ax.grid(which="minor", axis="both", alpha=0.3)
     ax.set_title("CDFs")
-    ax.set_xlabel("q")
-    ax.set_ylabel("CDF")
+    ax.set_xlabel("CDF")
+    ax.set_ylabel("q")
     ax.legend()
     plt.show()
+    fig.savefig(OUT_DIR / "Gaussian-Markov-CDFs.png")
 
+    markov.fit()
+    cdf_of_cdfs = np.array([markov_.h(c_i) for c_i in cdfs])
+    cdf_of_cdfs_emp = np.array([markov_.h(c_i) for c_i in cdfs_emp])
+    # cdfs_cond = np.array([markov_.cdf_cond(t, x_i[1]) for x_i in samples])
+
+    # cdfs_cond = np.array([markov_.cdf_cond(t, x_i[1]) for x_i in samples])
+    t = 0.7
     fig, ax = plt.subplots(figsize=(12, 12))
     ax.plot(q, np.sort(cdf_of_cdfs), c="C0", label="Markov-MCDF")
     ax.plot(q, np.sort(cdf_of_cdfs_emp), c="C1", label="Empirical MCDF")

@@ -56,9 +56,16 @@ class HarmonicThresholdModelMixture(HarmonicModelMixture):
             The value of the ppf at q.
         """
         ks = self._weights.ppf(t, q)
-        ks_cdf_low = self._weights.cdf(t, ks)
-        ks_cdf_up = self._weights.cdf(t, ks + 1)
-        return self._models[ks].ppf(t, (q - ks_cdf_low) / (ks_cdf_up - ks_cdf_low))
+        ks_cdf_low = self._weights.cdf(t, ks - 1)
+        ks_cdf_up = self._weights.cdf(t, ks)
+        ppf = np.zeros_like(ks, dtype=float)
+        for k in range(self._levels):
+            mask = ks == k
+            ppf[mask] = self._models[k].ppf(
+                t[mask],
+                (q[mask] - ks_cdf_low[mask]) / (ks_cdf_up[mask] - ks_cdf_low[mask]),
+            )
+        return ppf
 
     def fit(self, t: list, x: list):
         """Fit the distribution to the data.

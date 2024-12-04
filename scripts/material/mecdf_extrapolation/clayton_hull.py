@@ -19,13 +19,17 @@ from core.distributions.mecdf import MultivariateMarkovianECDF
 from core.distributions.copulas.clayton_copula import ClaytonCopula
 from core.distributions.copulas.independent_copula import IndependentCopula
 from utils.timer import Timer
+from utils.paths import output
 
 
 if __name__ == "__main__":
+    OUT_DIR = output("Material/MCDF/Clayton-hull")
+    OUT_DIR.mkdir(exist_ok=True, parents=True)
+
     # Plot a MECDF line
     # 2D MECDF
     theta = -0.3
-    N = 100_000
+    N = 10_000
     w = 2
     clayton = ClaytonCopula(theta)
 
@@ -70,6 +74,13 @@ if __name__ == "__main__":
             np.delete(u2_remaining, hull_vertices_lower, axis=0)
         )
     print(f"Remaining points: {len(u2_remaining)}")
+
+    if w == 2:
+        fig, ax = plt.subplots()
+        ax.scatter(*u2.T, s=1, alpha=0.3, c="k")
+        hull_points_lower = hull_points_lowers[0]
+        ax.scatter(*hull_points_lower.T, s=10, c="r")
+        fig.savefig(OUT_DIR / "clayton-hull.png")
 
     CMAP = plt.get_cmap("Spectral")
     if w == 3:
